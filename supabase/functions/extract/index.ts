@@ -91,6 +91,7 @@ Country: determine it from the store's address. Use, in this order: a country na
 Pick the category that fits best:
 ${Object.entries(CATEGORY_EXAMPLES).map(([k, v]) => `- ${k}: ${v}`).join('\n')}`;
 
+// The API allows at most 16 nullable (anyOf) fields per schema: amounts that are 0 when absent are plain numbers.
 const STATEMENT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -99,8 +100,8 @@ const STATEMENT_SCHEMA = {
     is_statement: { type: 'boolean', description: 'False when this is not a payment statement or self-billing from an agency.' },
     agency: { ...str, description: 'Name of the model agency that pays.' },
     agency_country: { ...str, description: 'ISO 3166-1 alpha-2 country of the agency, from its address.' },
-    agency_address: { ...str, description: 'Address of the agency as printed.' },
-    statement_no: { ...str, description: 'Payment / statement number.' },
+    agency_address: { type: 'string', description: 'Address of the agency as printed; empty if not shown.' },
+    statement_no: { type: 'string', description: 'Payment / statement number; empty if not shown.' },
     statement_date: { ...str, description: 'Date of the statement or payment, YYYY-MM-DD.' },
     currency: { ...str, description: 'ISO 4217 code.' },
     total_paid: { ...num, description: 'Amount paid out to the model.' },
@@ -118,9 +119,9 @@ const STATEMENT_SCHEMA = {
           invoice_no: { ...str, description: 'Invoice number(s) shown for the job, client and/or model invoice.' },
           kind: { type: 'string', enum: ['day_rate', 'usage', 'buyout', 'day_rate_usage', 'overtime', 'travel', 'other'] },
           fee: { ...num, description: 'The model fee for this job before deductions, excluding VAT.' },
-          vat_rate: { ...num, description: 'VAT percentage charged on the fee (0 when none).' },
-          vat: { ...num, description: 'VAT amount on the fee (0 when none).' },
-          expenses: { ...num, description: 'Expenses reimbursed to the model on top of the fee (0 when none).' },
+          vat_rate: { type: 'number', description: 'VAT percentage charged on the fee (0 when none).' },
+          vat: { type: 'number', description: 'VAT amount on the fee (0 when none).' },
+          expenses: { type: 'number', description: 'Expenses reimbursed to the model on top of the fee (0 when none).' },
           deductions: {
             type: 'array',
             items: {
@@ -131,7 +132,7 @@ const STATEMENT_SCHEMA = {
                 type: { type: 'string', enum: ['agency_fee', 'website', 'transport', 'tax_withheld', 'other'] },
                 label: { type: 'string', description: 'As printed, e.g. "Agency fee 25%", "Website", "Uber", "Withholding tax".' },
                 amount: { type: 'number', description: 'Deducted amount as a positive number, excluding VAT.' },
-                vat: { ...num, description: 'VAT the agency charges on this deduction (0 when none).' },
+                vat: { type: 'number', description: 'VAT the agency charges on this deduction (0 when none).' },
                 reverse_charge: { type: 'boolean', description: 'True when the agency charges this without VAT under reverse charge.' },
               },
             },
@@ -225,7 +226,7 @@ async function readStatement(supabase: any, userId: string, id: string) {
   const update = {
     status: complete && !issues.length ? 'done' : 'review',
     agency: x.agency, agency_country: /^[A-Z]{2}$/.test(x.agency_country || '') ? x.agency_country : row.agency_country,
-    agency_address: x.agency_address, statement_no: x.statement_no, statement_date: date, currency,
+    agency_address: x.agency_address || null, statement_no: x.statement_no || null, statement_date: date, currency,
     fx_rate: fx?.rate ?? null, fx_date: fx?.date ?? null, total_paid: num(x.total_paid), lines, issues, extraction: x, error: null,
   };
   const { data: saved, error: saveErr } = await supabase.from('statements').update(update).eq('id', id).select().single();
