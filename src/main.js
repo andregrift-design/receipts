@@ -6,7 +6,7 @@ import {
 } from './vat.js';
 import { downloadCsv, downloadZip, numbered, getNumberFormat, setNumberFormat } from './export.js';
 
-const VERSION = '1.2';
+const VERSION = '1.3';
 
 // ---------- helpers ----------
 
@@ -607,7 +607,7 @@ function Editor({ receipt, readOnly }) {
               <label>Category
                 <select value=${form.category || ''} onChange=${(e) => set({ category: e.target.value })}>
                   <option value="">–</option>
-                  ${CATEGORIES.map((c) => html`<option value=${c}>${c}</option>`)}
+                  ${[...new Set([...CATEGORIES, ...(form.category ? [form.category] : [])])].map((c) => html`<option value=${c}>${c}</option>`)}
                 </select>
               </label>
             </div>

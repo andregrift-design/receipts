@@ -3,8 +3,9 @@
 export const HOME_COUNTRY = 'NL';
 
 export const CATEGORIES = [
-  'Travel', 'Fuel', 'Parking', 'Public transport', 'Accommodation', 'Meals',
-  'Office supplies', 'Hardware', 'Software', 'Telecom', 'Training', 'Representation', 'Other',
+  'Travel', 'Accommodation', 'Transportation', 'Meals & Drinks', 'Health & Beauty', 'Clothing & Accessories',
+  'Fitness & Wellness', 'Portfolio & Content', 'Agency & Management', 'Casting & Auditions', 'Marketing & Promotion',
+  'Technology & Equipment', 'Software & Subscriptions', 'Professional Services', 'Education & Training', 'Other',
 ];
 
 export const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'SEK', 'NOK', 'DKK', 'PLN', 'CZK', 'HUF', 'JPY', 'CAD', 'AUD'];

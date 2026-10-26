@@ -36,7 +36,7 @@ GitHub Pages from `main` of `andregrift-design/receipts`. To ship a change: comm
 | --- | --- |
 | `src/main.js` | Screens: sign-in, list, editor, quarter, settings |
 | `src/api.js` | Supabase calls, photo resize, offline upload queue |
-| `src/vat.js` | VAT categories, checks, quarter totals |
+| `src/vat.js` | VAT categories, expense categories, checks, quarter totals |
 | `src/export.js` | CSV and ZIP export |
 | `supabase/` | Database schema and the receipt reader |
 | `tools/test.html` | Logic tests: open `/tools/test.html` on a local server |

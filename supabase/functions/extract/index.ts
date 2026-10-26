@@ -1,6 +1,6 @@
 // Reads a receipt photo (or PDF) with Claude and fills in the receipt row.
-// Body: { "id": "<receipt id>" }. Keep "Verify JWT" enabled: it runs as the signed-in user,
-// so row-level security decides which receipt it may read and change.
+// Body: { "id": "<receipt id>" }. "Verify JWT with legacy secret" is off: the function checks the
+// signed-in user itself and runs as that user, so row-level security decides what it may read and change.
 // Secret needed: ANTHROPIC_API_KEY (Edge Functions > Secrets).
 
 import Anthropic from 'npm:@anthropic-ai/sdk';
@@ -16,10 +16,26 @@ const cors = {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
 
-const CATEGORIES = [
-  'Travel', 'Fuel', 'Parking', 'Public transport', 'Accommodation', 'Meals',
-  'Office supplies', 'Hardware', 'Software', 'Telecom', 'Training', 'Representation', 'Other',
-];
+// Category -> examples; the examples guide the reader.
+const CATEGORY_EXAMPLES: Record<string, string> = {
+  'Travel': 'flights, trains, travel bookings',
+  'Accommodation': 'hotels, apartments, model housing',
+  'Transportation': 'taxis, Uber, parking, public transport, fuel',
+  'Meals & Drinks': 'restaurants, groceries, coffee',
+  'Health & Beauty': 'skincare, cosmetics, haircare, nails, treatments',
+  'Clothing & Accessories': 'clothing, shoes, bags, accessories',
+  'Fitness & Wellness': 'gym, Pilates, yoga, personal training',
+  'Portfolio & Content': 'test shoots, photographers, portfolio development',
+  'Agency & Management': 'agency commissions, management fees',
+  'Casting & Auditions': 'casting-related expenses, self-tapes',
+  'Marketing & Promotion': 'website, comp cards, social media promotion',
+  'Technology & Equipment': 'phone, laptop, lighting, camera equipment',
+  'Software & Subscriptions': 'editing apps, cloud storage, professional tools',
+  'Professional Services': 'accounting, legal, insurance',
+  'Education & Training': 'runway coaching, acting, workshops',
+  'Other': 'anything that fits none of the above',
+};
+const CATEGORIES = Object.keys(CATEGORY_EXAMPLES);
 
 const num = { anyOf: [{ type: 'number' }, { type: 'null' }] };
 const str = { anyOf: [{ type: 'string' }, { type: 'null' }] };
@@ -32,7 +48,7 @@ const SCHEMA = {
     is_receipt: { type: 'boolean', description: 'False when the image is not a receipt or invoice.' },
     store: { ...str, description: 'Name of the shop, restaurant or supplier as printed.' },
     description: { ...str, description: 'What was bought, in a few words of English, e.g. "Lunch, 2 people" or "Diesel 42.3 L".' },
-    category: { anyOf: [{ type: 'string', enum: CATEGORIES }, { type: 'null' }] },
+    category: { anyOf: [{ type: 'string', enum: CATEGORIES }, { type: 'null' }], description: 'Expense category; see the list in the instructions.' },
     date: { ...str, description: 'Purchase date as YYYY-MM-DD.' },
     currency: { ...str, description: 'ISO 4217 code, e.g. EUR, USD, GBP.' },
     total: { ...num, description: 'Total amount paid, VAT included. Positive number; negative only for a refund.' },
@@ -59,12 +75,14 @@ const SCHEMA = {
   },
 };
 
-const SYSTEM = `You read receipts and invoices for a Dutch business owner's VAT administration.
+const SYSTEM = `You read receipts and invoices for the VAT administration of a self-employed model based in the Netherlands.
 Extract exactly what is printed. Never invent amounts: use null when a value is missing or unreadable, and say so in issues.
 Dutch terms: BTW = VAT, "excl." = net, "incl." = gross, "hoog" usually 21%, "laag" usually 9%. German: MwSt/USt. French: TVA.
 If the receipt shows only VAT totals per rate, derive net = gross - VAT for that rate. If it shows only the total and one rate, compute net and VAT from it, and note that you computed it.
 If VAT is not shown at all, leave vat_lines empty and add an issue.
-Amounts are numbers with a dot as decimal separator. Dates: receipts from the Netherlands and Europe are day-month-year.`;
+Amounts are numbers with a dot as decimal separator. Dates: receipts from the Netherlands and Europe are day-month-year.
+Pick the category that fits best:
+${Object.entries(CATEGORY_EXAMPLES).map(([k, v]) => `- ${k}: ${v}`).join('\n')}`;
 
 async function fxRate(currency: string, date: string): Promise<number | null> {
   if (currency === 'EUR') return 1;
