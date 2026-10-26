@@ -1,58 +1,55 @@
 import AppKit
 
-// VH5 icon: the silhouette from Viola's invoice (black on white) above the invoice's black bar with "VH5".
-// tools/silhouette-mask.png is the figure's mask from the invoice PDF (white = figure).
-// Run from the project folder: swift tools/make-icon.swift  (writes icons/icon-{180,192,512}.png)
+// Icons and background art for VH5, from Viola's icon design (tools/icon-design.webp: a cream rounded square
+// with the silhouette, on white). Run from the project folder: swift tools/make-icon.swift
+//  - icons/icon-{180,192,512,1024}.png: the figure on cream, square and full bleed (iOS and macOS round the corners).
+//  - icons/silhouette.png: the figure alone, transparent, for the faint background of the app.
 
-let mask = NSImage(contentsOfFile: "tools/silhouette-mask.png")!
-var rect = NSRect(origin: .zero, size: mask.size)
-let maskCG = mask.cgImage(forProposedRect: &rect, context: nil, hints: nil)!
-// Head to waist: top 1080 px of the 1024 x 1536 mask.
-let crop = maskCG.cropping(to: CGRect(x: 0, y: 0, width: 1024, height: 1080))!
+// Load the design as raw RGBA bytes.
+let design = NSImage(contentsOfFile: "tools/icon-design.webp")!
+var rect = NSRect(origin: .zero, size: design.size)
+let cg = design.cgImage(forProposedRect: &rect, context: nil, hints: nil)!
+let W = cg.width, H = cg.height
+var px = [UInt8](repeating: 0, count: W * H * 4)
+let space = CGColorSpace(name: CGColorSpace.sRGB)!
+let rgba = CGImageAlphaInfo.premultipliedLast.rawValue
+CGContext(data: &px, width: W, height: H, bitsPerComponent: 8, bytesPerRow: W * 4, space: space, bitmapInfo: rgba)!
+  .draw(cg, in: CGRect(x: 0, y: 0, width: W, height: H))
+// Bytes are stored top row first.
+func at(_ x: Int, _ y: Int) -> Int { (min(max(y, 0), H - 1) * W + min(max(x, 0), W - 1)) * 4 }
+func isCream(_ i: Int) -> Bool { let r = Int(px[i]), b = Int(px[i + 2]); return r > 236 && r < 254 && r - b > 6 }
 
-func draw(_ size: CGFloat, transparent: Bool = false) -> Data {
-  let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size), pixelsHigh: Int(size), bitsPerSample: 8,
-                             samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
-  NSGraphicsContext.saveGraphicsState()
-  let g = NSGraphicsContext(bitmapImageRep: rep)!
-  NSGraphicsContext.current = g
-  let ctx = g.cgContext
-  let s = size / 100
+// The cream square inside the design (measured: x 72..1182, y 62..1163); a centred 1101 px square of it.
+let cropX = 76, cropY = 62, side = 1101
 
-  if !transparent {
-    NSColor.white.setFill()
-    NSRect(x: 0, y: 0, width: size, height: size).fill()
+// The figure alone: black with alpha (everything light becomes transparent). Used for the icon and the app background.
+var fig = [UInt8](repeating: 0, count: side * side * 4)
+for y in 0..<side {
+  for x in 0..<side {
+    let s = at(cropX + x, cropY + y)
+    let lum = (Int(px[s]) * 3 + Int(px[s + 1]) * 6 + Int(px[s + 2])) / 10
+    let a = max(0, min(255, (150 - lum) * 255 / 110))   // the figure is pure black; grey shadow and cream become transparent
+    let d = (y * side + x) * 4
+    fig[d + 3] = UInt8(a)                               // premultiplied black: colour stays 0
   }
-
-  // Black bar along the bottom, as on the invoice.
-  let bar = 24 * s
-  NSColor.black.setFill()
-  NSRect(x: 0, y: 0, width: size, height: bar).fill()
-
-  // Silhouette standing on the bar, a little left of center like on the invoice.
-  let h = 72 * s
-  let w = h * 1024 / 1080
-  let figure = CGRect(x: 8 * s, y: bar - 1, width: w, height: h)
-  ctx.saveGState()
-  ctx.clip(to: figure, mask: crop)
-  ctx.setFillColor(NSColor.black.cgColor)
-  ctx.fill(figure)
-  ctx.restoreGState()
-
-  // "VH5" in the bar.
-  let font = NSFont.systemFont(ofSize: 15 * s, weight: .heavy)
-  // On the transparent watermark the letters are cut out of the bar.
-  let text = NSAttributedString(string: "VH5", attributes: [.font: font, .foregroundColor: transparent ? NSColor.clear : NSColor.white, .kern: 1.2 * s])
-  if transparent { ctx.setBlendMode(.clear) }
-  let t = text.size()
-  text.draw(at: NSPoint(x: size - t.width - 7 * s, y: (bar - t.height) / 2))
-
-  NSGraphicsContext.restoreGraphicsState()
-  return rep.representation(using: .png, properties: [:])!
 }
+let figImage = CGContext(data: &fig, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4, space: space, bitmapInfo: rgba)!.makeImage()!
+// Square icon: the figure from the design on a clean cream gradient in the design's colours (top to bottom),
+// full bleed; iOS and macOS round the corners themselves.
+let icon = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0, space: space, bitmapInfo: rgba)!
+let cream = CGGradient(colorsSpace: space, colors: [
+  CGColor(srgbRed: 251 / 255, green: 246 / 255, blue: 239 / 255, alpha: 1),
+  CGColor(srgbRed: 239 / 255, green: 228 / 255, blue: 215 / 255, alpha: 1)] as CFArray, locations: [0, 1])!
+icon.drawLinearGradient(cream, start: CGPoint(x: 0, y: side), end: CGPoint(x: 0, y: 0), options: [])
+icon.draw(figImage, in: CGRect(x: 0, y: 0, width: side, height: side))
+let iconImage = icon.makeImage()!
 
-for size in [180, 192, 512] {
-  try! draw(CGFloat(size)).write(to: URL(fileURLWithPath: "icons/icon-\(size).png"))
+func png(_ image: CGImage, _ size: Int, _ path: String) {
+  let ctx = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: 0, space: space, bitmapInfo: rgba)!
+  ctx.interpolationQuality = .high
+  ctx.draw(image, in: CGRect(x: 0, y: 0, width: size, height: size))
+  let rep = NSBitmapImageRep(cgImage: ctx.makeImage()!)
+  try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: path))
 }
-// Background watermark (shown at 8% opacity in the app).
-try! draw(900, transparent: true).write(to: URL(fileURLWithPath: "icons/watermark.png"))
+for size in [180, 192, 512, 1024] { png(iconImage, size, "icons/icon-\(size).png") }
+png(figImage, 900, "icons/silhouette.png")

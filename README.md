@@ -50,7 +50,7 @@ GitHub Pages from `main` of `andregrift-design/receipts`. To ship a change: comm
 | `supabase/` | Database schema and the receipt reader |
 | `tools/test.html` | Logic and export tests: open `/tools/test.html` on a local server |
 | `tools/ui-test.html` | All screens with sample data, no account needed |
-| `tools/make-icon.swift` | Draws the app icons |
+| `tools/make-icon.swift` | Builds the app icons and the background silhouette from `tools/icon-design.webp` (Viola’s icon design) |
 
 ## Costs
 

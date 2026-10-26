@@ -1,49 +1,61 @@
-/* VH5: black and white like Viola's invoice. One set of tokens, one table layout, one form layout. */
+/* VH5: cream and warm black like the icon, the silhouette faint in the background. One set of tokens, one table layout, one form layout. */
 
 :root {
-  --bg: #f5f5f3;
-  --card: #ffffff;
-  --ink: #111111;
-  --muted: #6e6e6a;
-  --line: #e2e2de;
-  --soft: #f0f0ed;
-  --accent: #111111;
-  --accent-ink: #ffffff;
+  /* Cream and warm black, taken from the VH5 icon. */
+  --bg: #f7f1e8;
+  --bg-top: #fbf7f1;
+  --bg-bottom: #efe5d8;
+  --card: #fffdf9;
+  --ink: #1a1714;
+  --muted: #857a6e;
+  --line: #eae1d5;
+  --soft: #f5eee4;
+  --accent: #1a1714;
+  --accent-ink: #fbf7f1;
   --warn: #8a5a00;
-  --warn-soft: #fbf3df;
+  --warn-soft: #f9eccd;
   --bad: #a3392e;
-  --bad-soft: #f9e6e3;
-  --good: #2f6f4e;
-  --good-soft: #e5f1ea;
-  --info: #2b5c8a;
-  --info-soft: #e6eef7;
+  --bad-soft: #f8e1dc;
+  --good: #3c6b4c;
+  --good-soft: #e3eedf;
+  --info: #45607a;
+  --info-soft: #e5ebef;
+  --shadow: 0 1px 2px rgba(70, 50, 30, .05), 0 8px 24px rgba(70, 50, 30, .06);
   --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', Inter, sans-serif;
   --display: 'Avenir Next Condensed', 'SF Pro Display', 'Helvetica Neue', 'Arial Narrow', sans-serif;
-  --radius: 14px;
+  --radius: 16px;
   --num: 118px;   /* width of every amount column */
   --cnt: 76px;    /* width of every count column */
+  --figure-opacity: .045;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #121212; --card: #1c1c1c; --ink: #f2f2f0; --muted: #9a9a95; --line: #2e2e2c; --soft: #242423;
-    --accent: #f2f2f0; --accent-ink: #111111;
-    --warn: #e7bd6a; --warn-soft: #3a2f18; --bad: #f08a7e; --bad-soft: #3d2320; --good: #8fd1ad; --good-soft: #1f3328;
-    --info: #9cc3ea; --info-soft: #1d2a38;
+    --bg: #17130f; --bg-top: #1d1814; --bg-bottom: #120f0c; --card: #221d18; --ink: #f3ece3; --muted: #a39686;
+    --line: #342d26; --soft: #2a241e; --accent: #f3ece3; --accent-ink: #17130f;
+    --warn: #e7bd6a; --warn-soft: #3a2f18; --bad: #f08a7e; --bad-soft: #3d2320; --good: #9fd3b0; --good-soft: #1f3328;
+    --info: #a9c3dc; --info-soft: #1f2a35; --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .25);
+    --figure-opacity: .06;
     color-scheme: dark;
   }
 }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; }
-body { background: var(--bg); color: var(--ink); font: 15px/1.45 var(--font); -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent; }
-/* The VH5 logo at 8% behind everything. */
+body {
+  color: var(--ink); font: 15px/1.45 var(--font); -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent;
+  background: linear-gradient(180deg, var(--bg-top), var(--bg-bottom)) fixed var(--bg);
+  min-height: 100dvh;
+}
+/* The VH5 silhouette, large and faint, standing at the bottom right. */
 body::before {
-  content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none;
-  background: url('icons/watermark.png') no-repeat center 60% / min(70vw, 520px);
-  opacity: .08;
+  content: ''; position: fixed; z-index: -1; pointer-events: none;
+  right: -4vw; bottom: 0; width: min(78vh, 760px); height: min(78vh, 760px);
+  background: url('icons/silhouette.png') no-repeat right bottom / contain;
+  opacity: var(--figure-opacity);
 }
 @media (prefers-color-scheme: dark) { body::before { filter: invert(1); } }
+@media (max-width: 700px) { body::before { right: -18vw; width: 92vw; height: 92vw; bottom: 64px; } }
 a { color: inherit; }
 h1, h2, h3 { font-family: var(--display); font-weight: 700; letter-spacing: .01em; margin: 0; }
 h1 { font-size: 30px; line-height: 1.1; }
@@ -80,7 +92,7 @@ button.icon { width: 38px; height: 38px; padding: 0; border-radius: 50%; display
 small { color: var(--muted); }
 .nowrap { white-space: nowrap; }
 .center { text-align: center; }
-.card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 14px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 14px; box-shadow: var(--shadow); }
 .card.flush { padding: 4px 0; }
 
 /* ---------- shell ---------- */
@@ -89,11 +101,11 @@ small { color: var(--muted); }
 .topbar {
   position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 16px;
   padding: calc(10px + env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) 10px max(18px, env(safe-area-inset-left));
-  background: color-mix(in srgb, var(--bg) 85%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  background: color-mix(in srgb, var(--bg-top) 82%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
   border-bottom: 1px solid var(--line);
 }
 .brand { display: flex; align-items: center; gap: 9px; text-decoration: none; font-family: var(--display); font-weight: 700; font-size: 20px; }
-.brand img { width: 30px; height: 30px; border-radius: 7px; border: 1px solid var(--line); }
+.brand img { width: 30px; height: 30px; border-radius: 8px; box-shadow: 0 1px 3px rgba(70, 50, 30, .2); }
 .tabs { display: flex; gap: 2px; }
 .tabs a { display: flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 10px; color: var(--muted); text-decoration: none; font-weight: 500; }
 .tabs a.on { background: var(--ink); color: var(--bg); }
@@ -118,7 +130,7 @@ small { color: var(--muted); }
 /* Phone: menu at the bottom, like an iPhone app. */
 @media (max-width: 700px) {
   /* A blurred top bar would trap the fixed menu inside it: keep it plain on phones. */
-  .topbar { backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--bg); }
+  .topbar { backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--bg-top); }
   .topbar .tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; justify-content: space-around;
     padding: 6px 4px calc(6px + env(safe-area-inset-bottom)); background: color-mix(in srgb, var(--card) 92%, transparent);
     backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-top: 1px solid var(--line); }
@@ -174,6 +186,7 @@ col.c-date { width: 104px; }
 col.c-no { width: 44px; }
 tfoot td { font-weight: 700; border-bottom: 0; border-top: 2px solid var(--ink); }
 tr.group td { font-weight: 700; background: var(--soft); }
+thead th { border-bottom: 1px solid var(--line); }
 tr.sub td { font-weight: 600; }
 tr.total td { font-weight: 700; }
 td small { color: var(--muted); }
@@ -247,7 +260,7 @@ td small { color: var(--muted); }
 .seg .on { background: var(--ink); color: var(--bg); }
 .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 6px; }
 @media (max-width: 700px) { .tiles { grid-template-columns: 1fr; } }
-.tile { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; }
+.tile { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow); }
 .tile .kicker { margin: 0; }
 .tile .big-num { font-family: var(--display); font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .section-title { display: flex; align-items: baseline; gap: 10px; margin: 30px 2px 10px; border-bottom: 2px solid var(--ink); padding-bottom: 6px; }
@@ -258,8 +271,8 @@ td small { color: var(--muted); }
 
 /* ---------- dialogs and search ---------- */
 
-.backdrop { position: fixed; inset: 0; z-index: 60; background: rgba(0, 0, 0, .35); display: grid; place-items: start center; padding: 10vh 14px 14px; }
-.dialog { width: 100%; max-width: 520px; background: var(--card); border-radius: 16px; padding: 20px; box-shadow: 0 20px 60px rgba(0, 0, 0, .25); }
+.backdrop { position: fixed; inset: 0; z-index: 60; background: rgba(30, 20, 10, .32); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); display: grid; place-items: start center; padding: 10vh 14px 14px; }
+.dialog { width: 100%; max-width: 520px; background: var(--card); border-radius: 18px; padding: 20px; box-shadow: 0 24px 70px rgba(40, 25, 10, .28); }
 .dialog h2 { margin: 0 0 6px; }
 .spotlight { max-width: 640px; padding: 0; overflow: hidden; }
 .spotlight input { border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: 16px 18px; font-size: 19px; }
@@ -293,7 +306,7 @@ td small { color: var(--muted); }
 .auth { min-height: 100dvh; display: grid; place-items: center; padding: 20px; }
 .auth-card { width: 100%; max-width: 380px; padding: 28px; }
 .auth-card button { width: 100%; margin-top: 6px; padding: 12px; }
-.auth-logo { width: 64px; height: 64px; border-radius: 14px; border: 1px solid var(--line); margin-bottom: 12px; }
+.auth-logo { width: 76px; height: 76px; border-radius: 18px; box-shadow: 0 2px 10px rgba(70, 50, 30, .2); margin-bottom: 14px; }
 .auth-links { display: flex; justify-content: space-between; margin-top: 16px; font-size: 14px; }
 .settings { max-width: 680px; margin: 0 auto; }
 .row-form { display: flex; gap: 8px; }

@@ -1,10 +1,10 @@
 // Offline support: app files and CDN libraries are cached; Supabase and exchange-rate calls always go to the network.
-const VERSION = 'vh5-v20';
+const VERSION = 'vh5-v21';
 const SHELL = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest',
   'src/main.js', 'src/kit.js', 'src/expenses.js', 'src/income.js', 'src/overview.js', 'src/settings.js', 'src/search.js',
   'src/api.js', 'src/vat.js', 'src/export.js', 'src/ui.js', 'src/config.js',
-  'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/watermark.png',
+  'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/silhouette.png',
 ];
 
 self.addEventListener('install', (e) => {
