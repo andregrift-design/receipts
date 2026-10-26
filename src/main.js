@@ -6,7 +6,7 @@ import {
 } from './vat.js';
 import { downloadCsv, downloadZip, numbered, getNumberFormat, setNumberFormat } from './export.js';
 
-const VERSION = '1.1';
+const VERSION = '1.2';
 
 // ---------- helpers ----------
 
@@ -286,46 +286,76 @@ function Camera({ addFiles, close, fallback }) {
   const [error, setError] = useState('');
   const [taken, setTaken] = useState(0);
   const [flash, setFlash] = useState(false);
+  const [info, setInfo] = useState('');
 
   useEffect(() => {
     let cancelled = false;
-    let timer;
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const stop = () => { stream.current?.getTracks().forEach((t) => t.stop()); stream.current = null; };
+
+    // True when the picture is (nearly) pure black: some devices deliver a stream without an image.
+    const isBlack = (v) => {
+      if (!v.videoWidth) return true;
+      const c = document.createElement('canvas');
+      c.width = 32; c.height = 32;
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(v, 0, 0, 32, 32);
+      const d = ctx.getImageData(0, 0, 32, 32).data;
+      let max = 0;
+      for (let i = 0; i < d.length; i += 4) max = Math.max(max, d[i], d[i + 1], d[i + 2]);
+      return max < 12;
+    };
+
+    // Simplest requests last: high resolutions or a specific lens sometimes give a black picture.
+    const attempts = [
+      { facingMode: { ideal: 'environment' } },
+      { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+      true,
+    ];
+
     (async () => {
-      try {
-        const s = await navigator.mediaDevices.getUserMedia({
-          audio: false,
-          video: { facingMode: { ideal: 'environment' }, width: { ideal: 2560 }, height: { ideal: 1920 } },
-        });
-        if (cancelled) return s.getTracks().forEach((t) => t.stop());
-        stream.current = s;
-        const v = video.current;
-        v.srcObject = s;
-        await v.play().catch(() => {});
-        // Some phones hand over a stream that never shows a picture; don't leave a black screen.
-        timer = setTimeout(() => {
-          if (!cancelled && !v.videoWidth) {
-            setError('The camera didn’t send a picture. Another app may be using it.');
-            setState('error');
-          }
-        }, 4000);
-        v.onloadedmetadata = () => { if (!cancelled && v.videoWidth) setState('live'); };
-        if (v.videoWidth) setState('live');
-      } catch (err) {
-        if (cancelled) return;
-        const blocked = err?.name === 'NotAllowedError' || err?.name === 'SecurityError';
-        setError(blocked
-          ? 'Camera access is blocked for this site. On iPhone/iPad: tap aA in the address bar → Website Settings → Camera → Allow, then try again. Or check Settings → Apps → Safari → Camera.'
-          : `The camera couldn’t start (${err?.name || err}).`);
-        setState('error');
+      const v = video.current;
+      v.muted = true;
+      v.setAttribute('muted', '');
+      v.setAttribute('playsinline', '');
+      let lastError = null;
+      for (let i = 0; i < attempts.length && !cancelled; i++) {
+        try {
+          stop();
+          const s = await navigator.mediaDevices.getUserMedia({ audio: false, video: attempts[i] });
+          if (cancelled) return s.getTracks().forEach((t) => t.stop());
+          stream.current = s;
+          v.srcObject = s;
+          await v.play().catch(() => {});
+          // Wait for real frames, then check they aren't black.
+          for (let t = 0; t < 30 && !v.videoWidth && !cancelled; t++) await sleep(100);
+          await sleep(700);
+          if (cancelled) return;
+          const track = s.getVideoTracks()[0];
+          setInfo(`${track?.label || 'camera'} · ${v.videoWidth}×${v.videoHeight} · try ${i + 1}`);
+          if (!isBlack(v)) { setState('live'); return; }
+          lastError = null;
+        } catch (err) {
+          lastError = err;
+          if (err?.name === 'NotAllowedError' || err?.name === 'SecurityError') break;
+        }
       }
+      if (cancelled) return;
+      stop();
+      const blocked = lastError && (lastError.name === 'NotAllowedError' || lastError.name === 'SecurityError');
+      setError(blocked
+        ? 'Camera access is blocked for this site. Tap aA in the address bar → Website Settings → Camera → Allow, then try again. Or check Settings → Apps → Safari → Camera.'
+        : lastError
+          ? `The camera couldn’t start (${lastError.name || lastError}).`
+          : 'The camera gives a black picture. This usually means the camera is busy or not allowed right now: close other apps that use it (FaceTime, Zoom, a Mac using this iPhone as its webcam), and on iPad use Safari full screen, not Split View or Slide Over.');
+      setState('error');
     })();
     const onKey = (e) => e.key === 'Escape' && close();
     addEventListener('keydown', onKey);
     return () => {
       cancelled = true;
-      clearTimeout(timer);
       removeEventListener('keydown', onKey);
-      stream.current?.getTracks().forEach((t) => t.stop());
+      stop();
     };
   }, []);
 
@@ -360,6 +390,7 @@ function Camera({ addFiles, close, fallback }) {
           </div>
         </div>`}
       ${state === 'live' && html`<div class="camera-guide"></div>`}
+      ${info && html`<p class="camera-info">${info}</p>`}
       <div class="camera-bar">
         <button class="camera-done" onClick=${close}>${taken ? 'Done' : 'Cancel'}</button>
         <button class="shutter" disabled=${state !== 'live'} onClick=${shoot} aria-label="Take photo"></button>
