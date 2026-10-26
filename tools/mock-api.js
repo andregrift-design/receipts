@@ -46,5 +46,7 @@ export const removeShare = async () => {};
 export const queued = async () => [];
 export const addFiles = async () => {};
 export const flushOutbox = async () => {};
+export const takeDropped = () => 0;
+export const lastUploadError = '';
 export const createManual = async () => { const r = { id: 'm' + Date.now(), user_id: 'me', status: 'review', doc_type: 'none', currency: 'EUR', vat_country: 'NL', vat_lines: [], issues: [], receipt_date: '2026-10-26', created_at: new Date().toISOString(), updated_at: '1' }; rows = [r, ...rows]; return r; };
 export const attachFile = async (r) => r;

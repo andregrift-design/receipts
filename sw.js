@@ -1,5 +1,5 @@
 // Offline support: app files and CDN libraries are cached; Supabase and exchange-rate calls always go to the network.
-const VERSION = 'vh5-v11';
+const VERSION = 'vh5-v12';
 const SHELL = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest',
   'src/main.js', 'src/api.js', 'src/vat.js', 'src/export.js', 'src/ui.js', 'src/config.js',

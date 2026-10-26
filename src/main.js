@@ -7,7 +7,7 @@ import {
 } from './vat.js';
 import { downloadExcel, downloadPdf, downloadZip, numbered } from './export.js';
 
-const VERSION = '1.7.1';
+const VERSION = '1.7.2';
 
 // ---------- helpers ----------
 
@@ -189,6 +189,10 @@ function Main({ user }) {
     copy[i] = p.new;
     return copy;
   };
+  const reportDropped = () => {
+    const n = api.takeDropped();
+    if (n) alert(`${n} file${n > 1 ? 's' : ''} waiting to upload could not be read and ${n > 1 ? 'were' : 'was'} removed. Please import ${n > 1 ? 'them' : 'it'} again.`);
+  };
   const refreshQueue = () => api.queued().then((q) => setQueue(q.filter((i) => i.userId === user.id))).catch(() => {});
 
   useEffect(() => {
@@ -204,11 +208,11 @@ function Main({ user }) {
 
   useEffect(() => {
     refreshQueue();
-    const up = () => { setOnline(true); api.flushOutbox().then(() => { refreshQueue(); refresh(); }); };
+    const up = () => { setOnline(true); api.flushOutbox().then(() => { reportDropped(); refreshQueue(); refresh(); }); };
     const down = () => setOnline(false);
     addEventListener('online', up);
     addEventListener('offline', down);
-    api.flushOutbox().then(refreshQueue);
+    api.flushOutbox().then(() => { reportDropped(); refreshQueue(); });
     return () => { removeEventListener('online', up); removeEventListener('offline', down); };
   }, []);
 
@@ -220,6 +224,7 @@ function Main({ user }) {
     } catch (e) {
       alert(e.message);
     }
+    reportDropped();
     await refreshQueue();
     refresh();
   };

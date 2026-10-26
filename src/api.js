@@ -217,7 +217,13 @@ export const queued = () => outbox('readonly', (s) => s.getAll());
 // Phone photos are large: scale to 2000 px on the long side, JPEG. PDFs pass through.
 async function prepareFile(file) {
   // Some apps hand over PDFs without a file type: go by the name too.
-  if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '')) return { blob: file, type: 'application/pdf', ext: 'pdf' };
+  if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '')) {
+    // Copy the contents now: Safari can lose access to the picked file (iCloud Drive, Downloads) before the upload,
+    // and a stored file reference then uploads empty.
+    const bytes = await file.arrayBuffer();
+    if (!bytes.byteLength) throw new Error('the file is empty or could not be read');
+    return { blob: new Blob([bytes], { type: 'application/pdf' }), type: 'application/pdf', ext: 'pdf' };
+  }
   const bitmap = await createImageBitmap(file);
   const scale = Math.min(1, 2000 / Math.max(bitmap.width, bitmap.height));
   const canvas = document.createElement('canvas');
@@ -247,15 +253,24 @@ export async function addFiles(files, userId, kind = 'receipt') {
 let flushing = null;
 // Last upload problem, shown under the waiting items.
 export let lastUploadError = '';
+let dropped = 0;
+// Number of unreadable queued files removed since the last call.
+export const takeDropped = () => { const n = dropped; dropped = 0; return n; };
 export function flushOutbox() {
   if (flushing) return flushing;
   flushing = (async () => {
     // Keep going until the queue is empty: photos taken during an upload join this run.
     for (;;) {
       const items = await queued();
-      if (!items.length) { lastUploadError = ''; return; }
+      if (!items.length) return;
       if (!navigator.onLine) return;
       for (const item of items) {
+        // Items queued by older versions can hold a file that can no longer be read: drop them and say so.
+        if (!item.blob || !item.blob.size) {
+          await outbox('readwrite', (s) => s.delete(item.id));
+          dropped++;
+          continue;
+        }
         const statement = item.kind === 'statement';
         const path = `${item.userId}/${statement ? 'st-' : ''}${item.id}.${item.ext}`;
         const up = await sb.storage.from('receipts').upload(path, item.blob, { contentType: item.type, upsert: true });
@@ -263,6 +278,7 @@ export function flushOutbox() {
         const ins = await sb.from(statement ? 'statements' : 'receipts').upsert({ id: item.id, user_id: item.userId, file_path: path, file_type: item.type, status: 'processing' });
         if (ins.error) { lastUploadError = ins.error.message; console.warn('insert failed', ins.error); return; }
         await outbox('readwrite', (s) => s.delete(item.id));
+        lastUploadError = '';
         // Reading takes a few seconds; the row updates through realtime when done.
         sb.functions.invoke('extract', { body: { id: item.id, kind: item.kind || 'receipt' } }).catch(console.warn);
       }

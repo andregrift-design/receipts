@@ -95,6 +95,19 @@ const sumi = XLSX.utils.sheet_to_json(wbi.Sheets.Summary, { header: 1 });
 eq('vat position', sumi.find((r) => String(r[0]).startsWith('VAT to'))?.slice(0, 3), ['VAT to pay', null, round(840 - 24.45)]);
 await downloadPdf(rs, { ...meta, statements: sts, fileBase: 'incpdf' }, () => {});
 eq('pdf with income', files['incpdf.pdf'].size > 5000, true);
+// Import: a PDF without a file type is queued as a PDF with its contents copied (no live file reference).
+{
+  const real = await import('/src/api.js?real');
+  const pdf = new File([new TextEncoder().encode('%PDF-1.4 made-up test file')], 'statement.pdf', { type: '' });
+  try { await real.addFiles([pdf], 'test-user', 'statement'); } catch {} // upload fails here: no server in tests
+  const q = (await real.queued()).filter((i) => i.userId === 'test-user');
+  eq('pdf queued with contents', q.map((i) => [i.type, i.ext, i.kind, i.blob.size, i.blob instanceof File]), [['application/pdf', 'pdf', 'statement', 26, false]]);
+  const db = await new Promise((res) => { const r = indexedDB.open('receipts', 1); r.onsuccess = () => res(r.result); });
+  await new Promise((res) => { const t = db.transaction('outbox', 'readwrite'); q.forEach((i) => t.objectStore('outbox').delete(i.id)); t.oncomplete = res; });
+  let msg = '';
+  try { await real.addFiles([new File([], 'empty.pdf', { type: 'application/pdf' })], 'test-user', 'statement'); } catch (e) { msg = e.message; }
+  eq('empty pdf refused', msg.includes('empty.pdf: the file is empty'), true);
+}
 let progress = 0;
 await downloadPdf(rs, meta, (n) => { progress = n; });
 const pdf = files['Receipts 2026-Q3.pdf'];
