@@ -221,7 +221,8 @@ async function readStatement(supabase: any, userId: string, id: string) {
   const currency = /^[A-Z]{3}$/.test(x.currency || '') ? x.currency : 'EUR';
   const fx = date ? await fxRate(currency, date) : null;
   if (currency !== 'EUR' && fx == null) issues.push(`No ECB exchange rate found for ${currency}.`);
-  const complete = x.is_statement && x.agency && date && adds && (currency === 'EUR' || fx != null);
+  // The booking date is entered by the user at import; without it the statement is not done.
+  const complete = x.is_statement && x.agency && date && adds && (currency === 'EUR' || fx != null) && !!row.booking_date;
 
   const update = {
     status: complete && !issues.length ? 'done' : 'review',

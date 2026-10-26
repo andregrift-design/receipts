@@ -8,15 +8,14 @@ Live at **https://andregrift-design.github.io/receipts/**
 
 ## How it works
 
-- **Add**: Take photo (camera inside the app, several in a row), Photos & files (photos and PDFs, several at once) or Enter manually. On a laptop you can drop files onto the page. Offline, photos wait on the device and upload when you're back online.
-- **Read**: the `extract` edge function sends the photo to Claude and fills in document type, store, address, country (from the address), description, category, date, currency, total and one line per VAT rate. Foreign currencies get the ECB rate of the receipt date, stored with the date of that rate.
-- **Check**: a receipt is **Done** when the date, store or description, amount, exchange rate and VAT are filled in and the VAT lines add up to the total. Anything else shows as **Check** with what's missing. The editor shows the photo next to the fields; "Fill" splits the total into net and VAT for the chosen rate.
-- **No receipt?** Upload the payment receipt (card slip, bank screenshot) or tap Enter manually and attach a document later. Each record has a document type: Receipt, Invoice, Payment receipt only, No document. The overview shows how much Dutch VAT rests on payment receipts or no document.
-- **Income**: import agency statements (PDF or photo, any country or currency). Claude reads the agency, country, payment date and per job: client, job, job date, type (day rate, usage, buy-out…), fee, VAT, expenses and deductions (agency fee, website, transport, tax withheld). Statements count in the period of their payment date and are converted at that date. Agency fees charged without VAT by foreign agencies are marked reverse charge.
-- **Overview, income**: income per agency, fees by type, deductions, and the Dutch VAT position (VAT on income minus deductible VAT; reverse charge shown as due and deductible).
-- **Quarter**: Netherlands (21%, 9%, 0%, no VAT, VAT not entered, Dutch VAT to deduct) and foreign VAT (per country and rate, totals per country) shown separately, plus totals per expense category. Downloads: Excel (Summary and Receipts sheets), PDF (overview, list, one page per photo), ZIP (Excel + photos, numbered to match).
-- **US CPA**: on the Quarter page switch to **USD · US CPA**. Every amount is converted on its receipt date (receipt currency to EUR at the ECB rate, then EUR to USD at the ECB rate of that day). Choose **Year** for the whole calendar year. Excel and PDF then come out in USD, with the rate and rate date per receipt.
-- **Accountant**: Settings → Share with your accountant → their email. They create an account with that email at the same address and see your receipts and overviews read-only.
+Menu: **Expenses → Income → Overview → Settings**, plus search (⌘K, or 🔍 on the phone). On the phone the menu sits at the bottom.
+
+- **Expenses**: take a photo (camera in the app, several in a row), add photos/PDFs, or enter by hand. Claude reads document type, store, address, country, description, category, date, currency, total and VAT per rate. Foreign currencies get the ECB rate of the receipt date.
+- **Income**: import agency statements (any country or currency). You enter a **booking date** at import (today suggested); it decides the quarter. Every job shows the same fields: fee, VAT, expenses paid back, agency fee (+ VAT, reverse charge), website, transport, tax withheld, other. Done statements can have receipts attached per job. Duplicates are flagged.
+- **Overview** (quarter or year, EUR or USD): 1 Expenses (Netherlands, foreign per country, per category), 2 Income (Dutch agencies, foreign agencies per country, fees and deductions by type), 3 Dutch VAT position, 4 corrections and late entries, 5 details. Expenses count by receipt date, income by booking date. Exports (Excel, PDF, ZIP) follow the same order.
+- **Filing**: *Mark as filed with CPA* locks a quarter in the database. Receipts dated in a filed quarter that arrive later, and corrections, go to the first open quarter with a ↩︎ mark. A correction holds the right values; the overview books the difference with the original.
+- **Accountants**: Settings → Share → their email. They sign up with that email and see everything read-only.
+- Numbers always show as 1,000.00; fields accept 1,000.00, 1.000,00 and 12,50.
 
 ## Setup (already done)
 
@@ -38,10 +37,16 @@ GitHub Pages from `main` of `andregrift-design/receipts`. To ship a change: comm
 
 | File | Purpose |
 | --- | --- |
-| `src/main.js` | Screens: sign-in, receipts, income (agency statements), overview, settings |
+| `src/main.js` | Sign-in, app frame (menu, search, routes), shared data |
+| `src/kit.js` | Shared UI: number fields, badges, dialogs, document preview, icons |
+| `src/expenses.js` | Expenses list, camera, receipt screen |
+| `src/income.js` | Income list, agencies and clients, booking date dialog, statement screen |
+| `src/overview.js` | Overview and filing with the CPA |
+| `src/search.js` | Spotlight-style search |
+| `src/settings.js` | Account, sharing, filed quarters |
 | `src/api.js` | Supabase calls, photo resize, offline upload queue |
-| `src/vat.js` | VAT categories, expense categories, checks, quarter totals |
-| `src/export.js` | Excel, PDF and ZIP export |
+| `src/vat.js` | All calculations: VAT, income, quarters, corrections, duplicates, numbers |
+| `src/export.js` | Excel, PDF and ZIP export in overview order |
 | `supabase/` | Database schema and the receipt reader |
 | `tools/test.html` | Logic and export tests: open `/tools/test.html` on a local server |
 | `tools/ui-test.html` | All screens with sample data, no account needed |

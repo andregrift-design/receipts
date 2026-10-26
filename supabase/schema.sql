@@ -161,3 +161,69 @@ create policy "write own" on public.statements
 do $$ begin
   alter publication supabase_realtime add table public.statements;
 exception when duplicate_object then null; end $$;
+
+-- ---------- periods: quarters filed with the CPA are locked ----------
+
+alter table public.statements add column if not exists booking_date date;   -- entered by the user; decides the quarter
+alter table public.receipts   add column if not exists period text;         -- 'YYYY-Qn', set by the trigger below
+alter table public.statements add column if not exists period text;
+alter table public.receipts   add column if not exists corrects uuid references public.receipts on delete set null;
+alter table public.statements add column if not exists corrects uuid references public.statements on delete set null;
+
+create table if not exists public.periods (
+  user_id   uuid        not null default auth.uid() references auth.users on delete cascade,
+  period    text        not null check (period ~ '^\d{4}-Q[1-4]$'),
+  filed_at  timestamptz not null default now(),
+  note      text,
+  primary key (user_id, period)
+);
+alter table public.periods enable row level security;
+drop policy if exists "read own or shared" on public.periods;
+create policy "read own or shared" on public.periods for select using (public.can_view(user_id::text));
+drop policy if exists "file own" on public.periods;
+create policy "file own" on public.periods for insert with check (auth.uid() = user_id);
+-- No update or delete policy: a filed quarter stays filed.
+
+create or replace function public.is_filed(p_user uuid, p_period text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.periods where user_id = p_user and period = p_period);
+$$;
+
+create or replace function public.next_period(p text) returns text language sql immutable as $$
+  select case when right(p, 1) = '4' then (left(p, 4)::int + 1)::text || '-Q1'
+              else left(p, 6) || (right(p, 1)::int + 1)::text end;
+$$;
+
+-- Records in a filed quarter cannot change. New or changed records get the quarter of their date
+-- (receipt date / booking date); if that quarter is filed, the first open quarter after it.
+create or replace function public.assign_period() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare d date; p text;
+begin
+  if tg_op in ('UPDATE', 'DELETE') and old.period is not null and public.is_filed(old.user_id, old.period) then
+    raise exception 'VH5: % has been filed with the CPA. Make a correction instead.', old.period;
+  end if;
+  if tg_op = 'DELETE' then return old; end if;
+  -- Separate statements: each table only has its own date column.
+  if tg_table_name = 'receipts' then d := new.receipt_date; else d := new.booking_date; end if;
+  if d is null then new.period := null; return new; end if;
+  p := to_char(d, 'YYYY') || '-Q' || to_char(d, 'Q');
+  while public.is_filed(new.user_id, p) loop p := public.next_period(p); end loop;
+  new.period := p;
+  return new;
+end $$;
+
+drop trigger if exists receipts_period on public.receipts;
+create trigger receipts_period before insert or update or delete on public.receipts
+  for each row execute function public.assign_period();
+drop trigger if exists statements_period on public.statements;
+create trigger statements_period before insert or update or delete on public.statements
+  for each row execute function public.assign_period();
+
+do $$ begin
+  alter publication supabase_realtime add table public.periods;
+exception when duplicate_object then null; end $$;
+
+-- Fill period for existing rows.
+update public.receipts set receipt_date = receipt_date where period is null and receipt_date is not null;
+update public.statements set booking_date = booking_date where period is null and booking_date is not null;

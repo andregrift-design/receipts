@@ -38,6 +38,26 @@ export const neg = (v) => (Number(v) ? -Number(v) : 0);
 export const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 export const isNum = (v) => v !== null && v !== undefined && v !== '' && !Number.isNaN(Number(v));
 
+// 1,234.56 (always a comma for thousands and a dot for decimals).
+export function fmtNum(n, decimals = 2) {
+  if (!isNum(n)) return '';
+  return Number(n).toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+}
+
+// Reads what people type: 1234.5, 1,234.50, 1.234,50, 12,50 (Dutch decimal comma), 1,500 (thousands).
+export function parseNum(v) {
+  if (v === null || v === undefined) return null;
+  let t = String(v).trim().replace(/[€$£\s]/g, '');
+  if (!t) return null;
+  const neg = /^-|^\(.*\)$/.test(t);
+  t = t.replace(/[()-]/g, '');
+  if (t.includes(',') && t.includes('.')) t = t.lastIndexOf(',') > t.lastIndexOf('.') ? t.replace(/\./g, '').replace(',', '.') : t.replace(/,/g, '');
+  else if (/^\d{1,3}(,\d{3})+$/.test(t)) t = t.replace(/,/g, '');
+  else if (t.includes(',')) t = t.replace(',', '.');
+  const n = Number(t);
+  return Number.isNaN(n) ? NaN : neg ? -n : n;
+}
+
 export function money(n, currency = 'EUR') {
   if (!isNum(n)) return '–';
   return new Intl.NumberFormat('en-US', { style: 'currency', currency, currencyDisplay: 'narrowSymbol' }).format(n);
@@ -172,7 +192,7 @@ export function summarize(receipts, factor = fxFor) {
   for (const row of rows) {
     if (!groups.has(row.key)) groups.set(row.key, { key: row.key, country: row.key.split(':')[0], label: vatLabel(row.key), receipts: new Set(), net: 0, vat: 0, gross: 0, rows: [] });
     const g = groups.get(row.key);
-    g.receipts.add(row.receipt.id);
+    if (!row.receipt._reversal) g.receipts.add(row.receipt.id);
     g.net += row.net || 0;
     g.vat += row.vat || 0;
     g.gross += row.gross || 0;
@@ -200,7 +220,7 @@ export function summarize(receipts, factor = fxFor) {
     categories: [...rows.reduce((m, row) => {
       const c = row.receipt.category || 'No category';
       const e = m.get(c) || { category: c, receipts: new Set(), net: 0, vat: 0, gross: 0 };
-      e.receipts.add(row.receipt.id); e.net += row.net || 0; e.vat += row.vat || 0; e.gross += row.gross || 0;
+      if (!row.receipt._reversal) e.receipts.add(row.receipt.id); e.net += row.net || 0; e.vat += row.vat || 0; e.gross += row.gross || 0;
       return m.set(c, e);
     }, new Map()).values()]
       .map((e) => ({ ...e, count: e.receipts.size, net: round2(e.net), vat: round2(e.vat), gross: round2(e.gross) }))
@@ -250,6 +270,7 @@ export function statementProblems(st) {
   const out = [];
   if (!st.agency) out.push('agency');
   if (!st.statement_date) out.push('statement date');
+  if (!st.booking_date) out.push('booking date');
   if (!st.currency) out.push('currency');
   if (st.currency && st.currency !== 'EUR' && !isNum(st.fx_rate)) out.push('exchange rate');
   const lines = st.lines || [];
@@ -277,7 +298,7 @@ export function summarizeIncome(statements, factor = fxFor) {
     const key = `${st.agency || 'Unknown agency'}|${st.agency_country || ''}`;
     if (!agencies.has(key)) agencies.set(key, { agency: st.agency || 'Unknown agency', country: st.agency_country, statements: new Set(), fee: 0, vat: 0, expenses: 0, deductions: 0, paid: 0 });
     const a = agencies.get(key);
-    a.statements.add(st.id);
+    if (!st._reversal) a.statements.add(st.id);
     for (const l of st.lines || []) {
       const ded = (l.deductions || []).reduce((s, d) => s + deductionTotal(d), 0);
       const row = { statement: st, line: l, fee: round2(c(l.fee)), vat: round2(c(l.vat)), expenses: round2(c(l.expenses)), deductions: round2(c(ded)), paid: round2(c(lineTotal(l))) };
@@ -299,7 +320,7 @@ export function summarizeIncome(statements, factor = fxFor) {
   }
   const r = (m) => [...m.entries()].map(([k, v]) => ({ key: k, amount: round2(v) }));
   return {
-    count: statements.length,
+    count: statements.filter((st) => !st._reversal).length,
     lines,
     agencies: [...agencies.values()].map((a) => ({ ...a, count: a.statements.size, fee: round2(a.fee), vat: round2(a.vat), expenses: round2(a.expenses), deductions: round2(a.deductions), paid: round2(a.paid) }))
       .sort((x, y) => y.fee - x.fee),
@@ -356,4 +377,51 @@ export function agencyOverview(statements) {
     .map((a) => ({ ...a, fee: round2(a.fee), paid: round2(a.paid),
       clients: [...a.clients.values()].map((c) => ({ ...c, fee: round2(c.fee), kinds: [...c.kinds] })).sort((x, y) => y.fee - x.fee) }))
     .sort((x, y) => x.name.localeCompare(y.name));
+}
+
+// ---------- periods, corrections, duplicates ----------
+
+export const periodOf = (iso) => (iso ? `${iso.slice(0, 4)}-Q${Math.floor((Number(iso.slice(5, 7)) - 1) / 3) + 1}` : null);
+export const periodLabel = (p) => (p ? `${p.slice(5)} ${p.slice(0, 4)}` : 'No quarter');
+export const nextPeriod = (p) => (p.endsWith('4') ? `${Number(p.slice(0, 4)) + 1}-Q1` : `${p.slice(0, 6)}${Number(p.slice(6)) + 1}`);
+// The quarter a record belongs to by its own date: receipt date for expenses, booking date for statements.
+export const naturalPeriod = (rec) => periodOf(rec.receipt_date !== undefined ? rec.receipt_date : rec.booking_date);
+// Booked in a later quarter because its own quarter was already filed.
+export const isLate = (rec) => !!rec.period && !!naturalPeriod(rec) && naturalPeriod(rec) !== rec.period;
+// First open quarter for a date, given the filed quarters (same rule as the database).
+export function bookingPeriod(iso, filed) {
+  let p = periodOf(iso);
+  while (p && filed.has(p)) p = nextPeriod(p);
+  return p;
+}
+
+function negateReceipt(r) {
+  return { ...r, id: `${r.id}~rev`, _reversal: true, total: -n(r.total),
+    vat_lines: (r.vat_lines || []).map((l) => ({ ...l, net: -n(l.net), vat: -n(l.vat) })) };
+}
+function negateStatement(st) {
+  return { ...st, id: `${st.id}~rev`, _reversal: true, total_paid: -n(st.total_paid),
+    lines: (st.lines || []).map((l) => ({ ...l, fee: -n(l.fee), vat: -n(l.vat), expenses: -n(l.expenses),
+      deductions: (l.deductions || []).map((d) => ({ ...d, amount: -n(d.amount), vat: -n(d.vat) })) })) };
+}
+
+// Records of a period. A correction counts as the difference: its own values plus the reversed values
+// of the record it corrects. all = every record (to find the originals).
+export function forPeriod(records, all, match) {
+  const byId = new Map(all.map((x) => [x.id, x]));
+  const out = [];
+  for (const rec of records.filter((x) => match(x.period))) {
+    out.push(rec);
+    const orig = rec.corrects && byId.get(rec.corrects);
+    if (orig) out.push({ ...(rec.receipt_date !== undefined ? negateReceipt(orig) : negateStatement(orig)), period: rec.period, _correctionOf: orig });
+  }
+  return out;
+}
+
+// Same agency and statement number (or, without a number, same agency, date and amount) as an earlier statement.
+export function duplicateOf(st, statements) {
+  const key = (x) => [(x.agency || '').trim().toLowerCase(), x.statement_no ? x.statement_no.trim().toLowerCase() : `${x.statement_date}|${x.total_paid}`].join('|');
+  if (!st.agency || st.corrects) return null;
+  const k = key(st);
+  return statements.find((x) => x.id !== st.id && !x.corrects && x.agency && key(x) === k && x.created_at < st.created_at) || null;
 }

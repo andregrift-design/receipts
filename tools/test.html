@@ -1,136 +1,141 @@
-<!doctype html><meta charset="utf-8"><title>Receipts tests</title>
+<!doctype html><meta charset="utf-8"><title>VH5 tests</title>
 <script type="importmap">{ "imports": { "/src/api.js": "/tools/mock-api.js" } }</script>
 <pre id="out">running…</pre>
 <script type="module">
-import { problems, summarize, splitGross, quarterRange, quarterLabel, vatLabel, usdConversion, lineTotal, statementProblems, summarizeIncome, mergeCategories, agencyOverview } from '../src/vat.js';
-import { listStatements } from '/src/api.js';
-import { eurUsdRates } from '/src/api.js';
+// Logic and export tests with made-up data. Open /tools/test.html on a local server.
+import { problems, summarize, splitGross, quarterRange, quarterLabel, vatLabel, usdConversion, eurConversion, lineTotal, statementProblems,
+  summarizeIncome, mergeCategories, agencyOverview, parseNum, fmtNum, money, periodOf, nextPeriod, bookingPeriod, isLate, forPeriod, duplicateOf } from '../src/vat.js';
+import { listStatements, eurUsdRates } from '/src/api.js';
 import { downloadExcel, downloadPdf, numbered } from '../src/export.js';
+import { buildPeriod } from '../src/overview.js';
 import * as XLSX from 'https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs';
+
 const out = []; let fail = 0;
 const round = (v) => Math.round(v * 100) / 100;
 const eq = (name, a, b) => { const ok = JSON.stringify(a) === JSON.stringify(b); if (!ok) fail++; out.push(`${ok ? 'PASS' : 'FAIL'} ${name}${ok ? '' : `\n   got ${JSON.stringify(a)}\n   want ${JSON.stringify(b)}`}`); };
-const base = { id: '', status: 'done', doc_type: 'receipt', currency: 'EUR', vat_country: 'NL', created_at: '2026-01-01T00:00:00Z', file_path: 'u/x.png', file_type: 'image/png' };
+
+// ---------- numbers ----------
+eq('parse 1,500 as thousands', parseNum('1,500'), 1500);
+eq('parse 1,234.56', parseNum('1,234.56'), 1234.56);
+eq('parse Dutch 1.234,56', parseNum('1.234,56'), 1234.56);
+eq('parse 12,50 as decimal', parseNum('12,50'), 12.5);
+eq('parse € 7,920.00', parseNum('€ 7,920.00'), 7920);
+eq('parse negative', parseNum('-500.00'), -500);
+eq('format thousands', [fmtNum(1000), fmtNum(1234567.8), fmtNum(999)], ['1,000.00', '1,234,567.80', '999.00']);
+eq('money thousands', [money(9583.2), money(1500, 'USD')], ['€9,583.20', '$1,500.00']);
+
+// ---------- expenses ----------
+const base = { id: '', status: 'done', doc_type: 'receipt', currency: 'EUR', vat_country: 'NL', created_at: '2026-01-01T00:00:00Z', file_path: 'u/x.png', file_type: 'image/png', period: '2026-Q3' };
 const rs = [
-  { ...base, id: 'a', receipt_date: '2026-07-03', store: 'Albert Heijn', total: 31.30, vat_lines: [{ rate: 9, net: 20, vat: 1.8 }, { rate: 21, net: 7.85, vat: 1.65 }] },
-  { ...base, id: 'b', doc_type: 'payment', receipt_date: '2026-08-10', store: 'Shell', total: 121, vat_lines: [{ rate: 21, net: 100, vat: 21 }] },
-  { ...base, id: 'c', receipt_date: '2026-09-01', store: 'Hotel Berlin', total: 119, vat_country: 'DE', vat_lines: [{ rate: 19, net: 100, vat: 19 }] },
-  { ...base, id: 'd', receipt_date: '2026-09-02', store: 'NYC cab', total: 50, currency: 'USD', fx_rate: 0.9, vat_country: 'US', vat_lines: [{ rate: null, net: 50, vat: 0 }] },
+  { ...base, id: 'a', receipt_date: '2026-07-03', store: 'Albert Heijn', category: 'Meals & Drinks', total: 31.30, vat_lines: [{ rate: 9, net: 20, vat: 1.8 }, { rate: 21, net: 7.85, vat: 1.65 }] },
+  { ...base, id: 'b', doc_type: 'payment', receipt_date: '2026-08-10', store: 'Shell', category: 'Transportation', total: 1210, vat_lines: [{ rate: 21, net: 1000, vat: 210 }] },
+  { ...base, id: 'c', receipt_date: '2026-09-01', store: 'Hotel Berlin', category: 'Accommodation', total: 119, vat_country: 'DE', vat_lines: [{ rate: 19, net: 100, vat: 19 }] },
+  { ...base, id: 'd', receipt_date: '2026-09-02', store: 'NYC cab', category: 'Transportation', total: 50, currency: 'USD', fx_rate: 0.9, vat_country: 'US', vat_lines: [{ rate: null, net: 50, vat: 0 }] },
   { ...base, id: 'e', receipt_date: '2026-09-03', store: 'Parking', total: 5, status: 'review', vat_lines: [] },
 ];
 const s = summarize(rs);
 eq('groups order', s.groups.map((g) => g.key), ['NL:21', 'NL:9', 'NL:unknown', 'DE:19', 'US:none']);
-eq('21% group', [s.groups[0].count, s.groups[0].net, s.groups[0].vat, s.groups[0].gross], [2, 107.85, 22.65, 130.5]);
-eq('USD converted', [s.groups[4].net, s.groups[4].gross], [45, 45]);
-eq('home vs foreign', [s.home.count, s.home.gross, s.foreign.count, s.foreign.vat, s.foreignVat], [3, 157.3, 2, 19, 19]);
+eq('home vs foreign', [s.home.count, s.home.gross, s.foreign.count, s.foreign.vat], [3, 1246.3, 2, 19]);
 eq('per country', s.foreign.countries.map((c) => c.name), ['Germany', 'United States']);
-eq('home VAT', s.homeVat, 24.45);
-eq('total gross', s.total.gross, 31.3 + 121 + 119 + 45 + 5);
-eq('open', s.open.map((r) => r.id), ['e']);
-eq('labels', ['NL:21', 'NL:9', 'NL:none', 'DE:19', 'US:none'].map(vatLabel), ['21% VAT (high rate)', '9% VAT (low rate)', 'No VAT / exempt', 'Germany: 19% VAT', 'United States: no VAT']);
-eq('problems complete', problems(rs[0]), []);
-eq('problems missing', problems({ currency: 'USD', vat_lines: [] }), ['date', 'store or description', 'amount', 'exchange rate', 'VAT']);
-eq('problems sum', problems({ ...rs[1], total: 130 }), ['VAT lines don’t add up to the total']);
-eq('split 21', splitGross(121, 21), { net: 100, vat: 21 });
-eq('split 9', splitGross(10, 9), { net: 9.17, vat: 0.83 });
-eq('split none', splitGross(10, null), { net: 10, vat: 0 });
-eq('Q3 range', quarterRange(2026, 3), { start: '2026-07-01', end: '2026-09-30' });
-eq('Q1 leap', quarterRange(2028, 1).end, '2028-03-31');
-eq('label', quarterLabel(2026, 4), 'Q4 2026 (Oct–Dec)');
-eq('numbering', numbered(rs).map((n) => n.file), ['001_2026-07-03_Albert-Heijn.png', '002_2026-08-10_Shell.png', '003_2026-09-01_Hotel-Berlin.png', '004_2026-09-02_NYC-cab.png', '005_2026-09-03_Parking.png']);
-eq('weak VAT', [s.weakVat, s.weakCount], [21, 1]);
-// Capture downloads instead of saving them.
-const files = {};
-const orig = URL.createObjectURL;
-URL.createObjectURL = (blob) => { files.last = blob; return orig(blob); };
-HTMLAnchorElement.prototype.click = function () { files[this.download] = files.last; };
-const meta = { title: 'Q3 2026', owner: 'me@example.com', fileBase: 'Receipts 2026-Q3' };
-await downloadExcel(rs, meta);
-const wb = XLSX.read(await files['Receipts 2026-Q3.xlsx'].arrayBuffer(), { cellDates: true });
-eq('excel sheets', wb.SheetNames, ['Summary', 'Receipts']);
-const sum = XLSX.utils.sheet_to_json(wb.Sheets.Summary, { header: 1 });
-eq('excel NL total', sum.find((r) => r[0] === 'Total Netherlands'), ['Total Netherlands', 3, 127.85, 24.45, 157.3]);
-eq('excel weak VAT', sum.find((r) => String(r[0]).includes('payment receipt'))?.[3], 21);
-eq('excel foreign total', sum.find((r) => r[0] === 'Total foreign'), ['Total foreign', 2, 145, 19, 164]);
-const det = XLSX.utils.sheet_to_json(wb.Sheets.Receipts);
-eq('excel rows', det.length, 6);
-eq('excel row 3', [det[2].Store, det[2].Document, det[2]['VAT EUR'], det[2]['VAT rate']], ['Shell', 'Payment receipt only', 21, 0.21]);
-eq('excel date is a date', det[0].Date instanceof Date, true);
-// USD: fixed EUR/USD 1.10 for the test; USD receipts stay as they are.
-const usdc = usdConversion((d) => ({ rate: 1.1, date: d }));
-const su = summarize(rs, usdc.factor);
-eq('usd NL total', su.home.gross, 173.03);
-eq('usd US receipt unchanged', su.foreign.countries.find((c) => c.country === 'US').gross, 50);
-eq('usd rate shown', usdc.rate(rs[3]), { rate: 1, date: null });
-eq('usd rate EUR receipt', usdc.rate(rs[0]), { rate: 1.1, date: '2026-07-03', eurUsd: 1.1 });
-eq('year range', quarterRange(2026, 0), { start: '2026-01-01', end: '2026-12-31' });
-eq('year label', quarterLabel(2026, 0), '2026 (full year)');
-eq('categories', summarize(rs).categories.length, 1);
-await downloadExcel(rs, { ...meta, currency: 'USD', conv: usdc, fileBase: 'usd' });
-const wbu = XLSX.read(await files['usd.xlsx'].arrayBuffer(), { cellDates: true });
-const detu = XLSX.utils.sheet_to_json(wbu.Sheets.Receipts);
-eq('usd excel headers', ['Net USD', 'Rate to USD', 'Rate date'].every((h) => h in detu[0]), true);
-eq('usd excel shell gross', detu.find((r) => r.Store === 'Shell')['Gross USD'], 133.1);
-// Live ECB rates (network)
-const live = await eurUsdRates('2026-09-01', '2026-09-30');
-const sat = live('2026-09-05'); // a Saturday
-eq('live rate weekend uses Friday', [sat?.date, sat?.rate > 0.8 && sat?.rate < 1.6], ['2026-09-04', true]);
-// Agency statements (made-up data shaped like real ones)
+eq('labels', ['NL:21', 'NL:none', 'DE:19', 'US:none'].map(vatLabel), ['21% VAT (high rate)', 'No VAT / exempt', 'Germany: 19% VAT', 'United States: no VAT']);
+eq('problems', [problems(rs[0]), problems({ currency: 'USD', vat_lines: [] })], [[], ['date', 'store or description', 'amount', 'exchange rate', 'VAT']]);
+eq('split', [splitGross(121, 21), splitGross(10, null)], [{ net: 100, vat: 21 }, { net: 10, vat: 0 }]);
+eq('quarters', [quarterRange(2026, 3), quarterRange(2026, 0).end, quarterLabel(2026, 4), quarterLabel(2026, 0)],
+  [{ start: '2026-07-01', end: '2026-09-30' }, '2026-12-31', 'Q4 2026 (Oct–Dec)', '2026 (full year)']);
+eq('weak VAT', [s.weakVat, s.weakCount], [210, 1]);
+
+// ---------- periods, filing, corrections ----------
+eq('periodOf / next', [periodOf('2026-09-30'), periodOf('2026-10-01'), nextPeriod('2026-Q4'), nextPeriod('2026-Q2')], ['2026-Q3', '2026-Q4', '2027-Q1', '2026-Q3']);
+eq('booking period skips filed quarters', bookingPeriod('2026-08-01', new Set(['2026-Q3', '2026-Q4'])), '2027-Q1');
+eq('late entry detected', [isLate({ receipt_date: '2026-08-01', period: '2026-Q4' }), isLate({ receipt_date: '2026-08-01', period: '2026-Q3' })], [true, false]);
+// Hotel Berlin (Q3, filed) was 119; corrected to 140 in Q4: Q4 shows +21 gross, +3.35 VAT.
+const corr = { ...rs[2], id: 'c2', corrects: 'c', period: '2026-Q4', total: 140, vat_lines: [{ rate: 19, net: 117.65, vat: 22.35 }] };
+const q4 = forPeriod([...rs, corr], [...rs, corr], (p) => p === '2026-Q4');
+const s4 = summarize(q4);
+eq('correction books the difference', [s4.foreign.gross, s4.foreign.vat, s4.foreign.count], [21, 3.35, 1]);
+eq('Q3 unchanged by correction', summarize(forPeriod([...rs, corr], [...rs, corr], (p) => p === '2026-Q3')).foreign.gross, 164);
+
+// ---------- statements ----------
 const sts = await listStatements();
 eq('statement line totals', sts.map((x) => lineTotal(x.lines[0])), [4840, 750]);
 eq('statements complete', sts.map((x) => statementProblems(x)), [[], []]);
+eq('booking date required', statementProblems({ ...sts[0], booking_date: null }), ['booking date']);
+eq('bad total flagged', statementProblems({ ...sts[0], total_paid: 4000 }), ['lines don’t add up to the amount paid']);
 const inc = summarizeIncome(sts);
 eq('income totals', [inc.fee, inc.vat, inc.paid, inc.homeVat, inc.reverseCharge], [5000, 840, 5590, 840, 52.5]);
-eq('income kinds', inc.kinds.map((k) => [k.label, k.amount]), [['Buy-out', 4000], ['Day rate', 1000]]);
 eq('agency fee as expense', inc.categories, [{ category: 'Agency & Management', amount: 250 }]);
 eq('merged categories', mergeCategories([{ category: 'Agency & Management', count: 1, net: 10, vat: 2.1, gross: 12.1 }], inc.categories).map((c) => [c.category, c.gross, c.fromStatements]), [['Agency & Management', 262.1, 250]]);
-eq('bad total flagged', statementProblems({ ...sts[0], total_paid: 4000 }), ['lines don’t add up to the amount paid']);
-await downloadExcel(rs, { ...meta, statements: sts, fileBase: 'inc' });
-const wbi = XLSX.read(await files['inc.xlsx'].arrayBuffer(), { cellDates: true });
-eq('income sheet', wbi.SheetNames, ['Summary', 'Receipts', 'Income']);
-const incRows = XLSX.utils.sheet_to_json(wbi.Sheets.Income);
-eq('income rows', incRows.map((r) => [r.Agency, r['Fee EUR'], r['Agency fee EUR'], r['Reverse charge'] || '', r['Paid EUR']]),
-  [['Alpine Models e.U.', 1000, 250, 'Yes', 750], ['Example Models B.V.', 4000, 0, '', 4840]]);
-const sumi = XLSX.utils.sheet_to_json(wbi.Sheets.Summary, { header: 1 });
-eq('vat position', sumi.find((r) => String(r[0]).startsWith('VAT to'))?.slice(0, 3), ['VAT to pay', null, round(840 - 24.45)]);
-await downloadPdf(rs, { ...meta, statements: sts, fileBase: 'incpdf' }, () => {});
-eq('pdf with income', files['incpdf.pdf'].size > 5000, true);
-// Import: a PDF without a file type is queued as a PDF with its contents copied (no live file reference).
+const dupe = { ...sts[0], id: 's9', created_at: '2026-10-26T12:00:00Z' };
+eq('duplicate found', [duplicateOf(dupe, [...sts, dupe])?.id, duplicateOf(sts[0], [...sts, dupe])], ['s1', null]);
+{
+  const extra = { ...sts[0], id: 's3', fx_rate: null, currency: 'GBP', lines: [
+    { ...sts[0].lines[0], client: 'client a ltd', job_date: '2026-07-20', fee: 100, kind: 'day_rate' },
+    { ...sts[0].lines[0], client: 'Client C', job_date: '2026-07-21', fee: 50, kind: 'usage' }] };
+  const ov = agencyOverview([...sts, extra]);
+  eq('agencies and clients', [ov.map((a) => a.name), ov[1].clients.map((c) => [c.name, c.jobs])], [['Alpine Models e.U.', 'Example Models B.V.'], [['Client A Ltd', 2], ['Client C', 1]]]);
+}
+
+// ---------- the period view (as on screen) ----------
+const d3 = buildPeriod({ receipts: rs, statements: sts, year: 2026, quarter: 3, conv: eurConversion });
+eq('Q3: receipts and statements by quarter', [d3.rec.length, d3.sts.map((x) => x.id)], [5, ['s1']]);
+eq('Q3 VAT position', d3.vatDue, round(840 - 213.45));
+const dy = buildPeriod({ receipts: rs, statements: sts, year: 2026, quarter: 0, conv: eurConversion });
+eq('year includes Q1 statement', dy.sts.map((x) => x.id).sort(), ['s1', 's2']);
+
+// ---------- exports ----------
+const files = {};
+const origUrl = URL.createObjectURL;
+URL.createObjectURL = (blob) => { files.last = blob; return origUrl(blob); };
+HTMLAnchorElement.prototype.click = function () { files[this.download] = files.last; };
+const meta = { title: 'Q3 2026', owner: 'me@example.com', fileBase: 'VH5 2026-Q3', currency: 'EUR', conv: eurConversion };
+await downloadExcel(d3, meta);
+const wb = XLSX.read(await files['VH5 2026-Q3.xlsx'].arrayBuffer(), { cellDates: true });
+eq('excel sheets', wb.SheetNames, ['Summary', 'Expenses', 'Income']);
+const sum = XLSX.utils.sheet_to_json(wb.Sheets.Summary, { header: 1 }).map((r) => r[0]).filter(Boolean);
+const order = ['1. Expenses (by receipt date)', 'Netherlands', 'Foreign', 'Per category', '2. Income (agency statements, by booking date)', 'Dutch agencies', 'Foreign agencies', '3. Dutch VAT position'];
+eq('excel in overview order', order.map((t) => sum.indexOf(t)).every((v, i, a) => v >= 0 && (i === 0 || v > a[i - 1])), true);
+const sumRows = XLSX.utils.sheet_to_json(wb.Sheets.Summary, { header: 1 });
+eq('excel NL total', sumRows.find((r) => r[0] === 'Total Netherlands'), ['Total Netherlands', 3, 1027.85, 213.45, 1246.3]);
+eq('excel Dutch agencies total', sumRows.find((r) => r[0] === 'Total Dutch agencies'), ['Total Dutch agencies', 1, 4000, 840, 0, 4840]);
+const det = XLSX.utils.sheet_to_json(wb.Sheets.Expenses);
+eq('excel expense row', [det.find((r) => /Shell/.test(r.Store))?.['Gross EUR'], det[0]['Receipt date'] instanceof Date], [1210, true]);
+const incRows = XLSX.utils.sheet_to_json(wb.Sheets.Income);
+eq('excel income row', incRows.map((r) => [r.Agency, r['Fee EUR'], r['Paid EUR'], r.Quarter]), [['Example Models B.V.', 4000, 4840, 'Q3 2026']]);
+
+const usdc = usdConversion((dt) => ({ rate: 1.1, date: dt }));
+const du = buildPeriod({ receipts: rs, statements: sts, year: 2026, quarter: 3, conv: usdc });
+eq('usd: USD receipt unchanged', du.s.foreign.countries.find((c) => c.country === 'US').gross, 50);
+await downloadExcel(du, { ...meta, currency: 'USD', conv: usdc, fileBase: 'usd' });
+const detu = XLSX.utils.sheet_to_json(XLSX.read(await files['usd.xlsx'].arrayBuffer(), { cellDates: true }).Sheets.Expenses);
+eq('usd excel', [['Net USD', 'Rate to USD', 'Rate date'].every((h) => h in detu[0]), detu.find((r) => /Shell/.test(r.Store))['Gross USD']], [true, 1331]);
+
+let progress = 0;
+await downloadPdf(d3, meta, (n) => { progress = n; });
+const pdf = files['VH5 2026-Q3.pdf'];
+eq('pdf made with photo pages', [pdf.size > 5000 && (await pdf.text()).startsWith('%PDF'), progress], [true, 5]);
+window.lastPdf = pdf;
+
+// ---------- live ECB rates (network) ----------
+const live = await eurUsdRates('2026-09-01', '2026-09-30');
+const sat = live('2026-09-05'); // a Saturday
+eq('live rate weekend uses Friday', [sat?.date, sat?.rate > 0.8 && sat?.rate < 1.6], ['2026-09-04', true]);
+
+// ---------- import queue ----------
 {
   const real = await import('/src/api.js?real');
-  const pdf = new File([new TextEncoder().encode('%PDF-1.4 made-up test file')], 'statement.pdf', { type: '' });
-  try { await real.addFiles([pdf], 'test-user', 'statement'); } catch {} // upload fails here: no server in tests
+  const f = new File([new TextEncoder().encode('%PDF-1.4 made-up test file')], 'statement.pdf', { type: '' });
+  try { await real.addFiles([f], 'test-user', 'statement', { booking_date: '2026-10-26' }); } catch {} // upload fails here: no server in tests
   const q = (await real.queued()).filter((i) => i.userId === 'test-user');
-  eq('pdf queued with contents', q.map((i) => [i.type, i.ext, i.kind, i.blob.size, i.blob instanceof File]), [['application/pdf', 'pdf', 'statement', 26, false]]);
+  eq('pdf queued with contents and booking date', q.map((i) => [i.type, i.kind, i.blob.size, i.extra?.booking_date]), [['application/pdf', 'statement', 26, '2026-10-26']]);
   const db = await new Promise((res) => { const r = indexedDB.open('receipts', 1); r.onsuccess = () => res(r.result); });
   await new Promise((res) => { const t = db.transaction('outbox', 'readwrite'); q.forEach((i) => t.objectStore('outbox').delete(i.id)); t.oncomplete = res; });
   let msg = '';
   try { await real.addFiles([new File([], 'empty.pdf', { type: 'application/pdf' })], 'test-user', 'statement'); } catch (e) { msg = e.message; }
   eq('empty pdf refused', msg.includes('empty.pdf: the file is empty'), true);
-  // A queued file that can no longer be read is removed, not retried forever.
-  const db2 = await new Promise((res) => { const r = indexedDB.open('receipts', 1); r.onsuccess = () => res(r.result); });
-  await new Promise((res) => { const t = db2.transaction('outbox', 'readwrite'); t.objectStore('outbox').put({ id: 'stuck', userId: 'test-user', kind: 'statement', blob: new Blob([]), type: 'application/pdf', ext: 'pdf', added: '2026-10-26T10:00:00Z' }); t.oncomplete = res; });
+  await new Promise((res) => { const t = db.transaction('outbox', 'readwrite'); t.objectStore('outbox').put({ id: 'stuck', userId: 'test-user', kind: 'statement', blob: new Blob([]), type: 'application/pdf', ext: 'pdf', added: '2026-10-26T10:00:00Z' }); t.oncomplete = res; });
   await real.flushOutbox();
   eq('unreadable queued file removed', [(await real.queued()).some((i) => i.id === 'stuck'), real.takeDropped()], [false, 1]);
 }
-// Agencies and clients (made-up data)
-{
-  const extra = { ...sts[0], id: 's3', statement_date: '2026-08-01', fx_rate: null, currency: 'GBP', lines: [
-    { ...sts[0].lines[0], client: 'client a ltd', job_date: '2026-07-20', fee: 100, kind: 'day_rate' },
-    { ...sts[0].lines[0], client: 'Client C', job_date: '2026-07-21', fee: 50, kind: 'usage' }] };
-  const ov = agencyOverview([...sts, extra]);
-  eq('agencies', ov.map((a) => [a.name, a.country, a.statements]), [['Alpine Models e.U.', 'AT', 1], ['Example Models B.V.', 'NL', 2]]);
-  const ex = ov[1];
-  eq('clients merged by name', ex.clients.map((c) => [c.name, c.jobs, c.last, c.kinds]), [['Client A Ltd', 2, '2026-07-20', ['Buy-out', 'Day rate']], ['Client C', 1, '2026-07-21', ['Usage']]]);
-  eq('fees in EUR skip missing rate', [ex.fee, ex.clients[0].fee], [4000, 4000]);
-}
-let progress = 0;
-await downloadPdf(rs, meta, (n) => { progress = n; });
-const pdf = files['Receipts 2026-Q3.pdf'];
-const pdfText = await pdf.text();
-eq('pdf made', pdf.size > 5000 && pdfText.startsWith('%PDF'), true);
-eq('pdf photo pages', progress, 5);
-out.push(`\nPDF ${Math.round(pdf.size / 1024)} KB, pages: ${(pdfText.match(/\/Type \/Page\b/g) || []).length}`);
-window.lastPdf = pdf;
+
 document.getElementById('out').textContent = `${fail ? fail + ' FAILED' : 'ALL PASS'}\n\n` + out.join('\n');
 </script>

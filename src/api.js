@@ -36,6 +36,35 @@ export function watchReceipts(ownerId, onChange, table = 'receipts') {
   return () => sb.removeChannel(channel);
 }
 
+// ---------- filed quarters ----------
+
+export async function listPeriods(ownerId) {
+  const { data, error } = await sb.from('periods').select('*').eq('user_id', ownerId).order('period');
+  if (error) throw error;
+  return data;
+}
+
+// Locks a quarter for good: the database refuses changes to its records from then on.
+export async function filePeriod(period, note) {
+  const { error } = await sb.from('periods').insert({ period, note: note || null });
+  if (error) throw error;
+}
+
+// A correction is a new record with the right values; the overview books the difference with the original.
+const CORRECTION_FIELDS = {
+  receipts: ['user_id', 'doc_type', 'store', 'store_address', 'description', 'category', 'receipt_date', 'currency', 'total',
+    'vat_country', 'vat_lines', 'fx_rate', 'fx_date', 'notes'],
+  statements: ['user_id', 'agency', 'agency_country', 'agency_address', 'statement_no', 'statement_date', 'booking_date',
+    'currency', 'fx_rate', 'fx_date', 'lines', 'total_paid', 'notes'],
+};
+export async function createCorrection(table, rec) {
+  const row = Object.fromEntries(CORRECTION_FIELDS[table].map((k) => [k, rec[k] ?? null]));
+  Object.assign(row, { corrects: rec.id, status: 'review', file_path: null, file_type: null });
+  const { data, error } = await sb.from(table).insert(row).select().single();
+  if (error) throw error;
+  return data;
+}
+
 // ---------- agency statements ----------
 
 export async function listStatements(ownerId) {
@@ -50,13 +79,14 @@ const numOrNull = (v) => (v === '' || v == null ? null : Number(v));
 export async function saveStatement(st) {
   const fields = {
     agency: st.agency || null, agency_country: st.agency_country || 'NL', agency_address: st.agency_address || null,
-    statement_no: st.statement_no || null, statement_date: st.statement_date || null, currency: st.currency || 'EUR',
+    statement_no: st.statement_no || null, statement_date: st.statement_date || null, booking_date: st.booking_date || null,
+    currency: st.currency || 'EUR',
     fx_rate: st.currency === 'EUR' ? 1 : numOrNull(st.fx_rate), fx_date: st.currency === 'EUR' ? null : st.fx_date || null,
     total_paid: numOrNull(st.total_paid), notes: st.notes || null,
     lines: (st.lines || []).map((l) => ({
       job_date: l.job_date || null, client: l.client || null, description: l.description || null, invoice_no: l.invoice_no || null,
       kind: l.kind || 'other', fee: numOrNull(l.fee), vat_rate: numOrNull(l.vat_rate) ?? 0, vat: numOrNull(l.vat) ?? 0,
-      expenses: numOrNull(l.expenses) ?? 0,
+      expenses: numOrNull(l.expenses) ?? 0, receipt_ids: l.receipt_ids || [],
       deductions: (l.deductions || []).map((d) => ({ type: d.type || 'other', label: d.label || null, amount: numOrNull(d.amount), vat: numOrNull(d.vat) ?? 0, reverse_charge: !!d.reverse_charge })),
     })),
   };
@@ -235,13 +265,13 @@ async function prepareFile(file) {
   return { blob, type: 'image/jpeg', ext: 'jpg' };
 }
 
-// kind: 'receipt' or 'statement' (agency statement).
-export async function addFiles(files, userId, kind = 'receipt') {
+// kind: 'receipt' or 'statement' (agency statement). extra: fields for the new record, e.g. { booking_date }.
+export async function addFiles(files, userId, kind = 'receipt', extra = {}) {
   const failed = [];
   for (const file of files) {
     try {
       const prepared = await prepareFile(file);
-      const item = { id: crypto.randomUUID(), userId, kind, ...prepared, added: new Date().toISOString() };
+      const item = { id: crypto.randomUUID(), userId, kind, extra, ...prepared, added: new Date().toISOString() };
       await outbox('readwrite', (s) => s.put(item));
     } catch (e) {
       failed.push(`${file.name || 'file'}: ${e.message || e}`);
@@ -292,7 +322,8 @@ export function flushOutbox() {
           console.warn('upload failed', up.error);
           return;
         }
-        const ins = await sb.from(statement ? 'statements' : 'receipts').upsert({ id: item.id, user_id: item.userId, file_path: path, file_type: item.type, status: 'processing' });
+        const ins = await sb.from(statement ? 'statements' : 'receipts')
+          .upsert({ ...(item.extra || {}), id: item.id, user_id: item.userId, file_path: path, file_type: item.type, status: 'processing' });
         if (ins.error) { lastUploadError = ins.error.message; console.warn('insert failed', ins.error); return; }
         await outbox('readwrite', (s) => s.delete(item.id));
         lastUploadError = '';
