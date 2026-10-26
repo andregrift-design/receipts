@@ -1,15 +1,15 @@
-// Easter egg: every 10th receipt added on this device gets confetti and a word of encouragement.
+// Easter egg: the 10th receipt added on this device gets confetti and a word of encouragement.
 import { html, useEffect, useRef } from './ui.js';
 
 const COLORS = ['#d2b08c', '#7a4f2e', '#e8a0a8', '#c2543f', '#e7bd6a', '#9fbfa8', '#a9c3dc', '#f3ece3'];
 
-// Counts receipts added and says whether this batch passed a multiple of 10.
+// Counts receipts added and says whether this batch reached the 10th (once only).
 export function countAdded(userId, n) {
   const key = `vh5Added:${userId}`;
   const before = Number(localStorage.getItem(key)) || 0;
   const after = before + n;
   localStorage.setItem(key, String(after));
-  return Math.floor(after / 10) > Math.floor(before / 10);
+  return before < 10 && after >= 10;
 }
 
 export function Celebration({ onClose }) {

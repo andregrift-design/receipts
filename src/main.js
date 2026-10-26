@@ -11,7 +11,7 @@ import { SettingsPage } from './settings.js';
 import { Spotlight } from './search.js';
 import { Celebration, countAdded } from './confetti.js';
 
-const VERSION = '2.5';
+const VERSION = '2.5.1';
 
 // ---------- sign in ----------
 
