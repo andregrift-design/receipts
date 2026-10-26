@@ -57,3 +57,10 @@ export const takeDropped = () => 0;
 export const lastUploadError = '';
 export const createManual = async (_u, extra = {}) => { const r = { ...extra, id: 'm' + Date.now(), user_id: 'me', status: 'review', doc_type: 'none', currency: 'EUR', vat_country: 'NL', vat_lines: [], issues: [], receipt_date: '2026-10-26', period: '2026-Q4', created_at: new Date().toISOString(), updated_at: '1' }; rows = [r, ...rows]; return r; };
 export const attachFile = async (r) => r;
+// Passkeys (made-up)
+let passkeys = [{ id: 'pk1', friendly_name: 'iCloud Keychain', created_at: '2026-10-20T10:00:00Z', last_used_at: '2026-10-25T08:00:00Z' }];
+export const passkeysSupported = () => true;
+export const listPasskeys = async () => passkeys;
+export const addPasskey = async () => { const p = { id: 'pk' + Date.now(), friendly_name: 'Chrome on Mac', created_at: new Date().toISOString() }; passkeys = [...passkeys, p]; return p; };
+export const removePasskey = async (id) => { passkeys = passkeys.filter((p) => p.id !== id); };
+export const signInWithPasskey = async () => true;

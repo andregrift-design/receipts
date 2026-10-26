@@ -1,5 +1,5 @@
 // Settings: account, sharing with accountants, filed quarters, install help.
-import { html, useState } from './ui.js';
+import { html, useState, useEffect } from './ui.js';
 import * as api from './api.js';
 import { fmtDate, periodLabel } from './vat.js';
 
@@ -26,6 +26,8 @@ export function SettingsPage({ ctx, version }) {
         <p>Signed in as <strong>${user.email}</strong></p>
         <button onClick=${() => { localStorage.removeItem('owner'); api.sb.auth.signOut(); }}>Sign out</button>
       </section>
+
+      ${api.passkeysSupported() && html`<${Passkeys} />`}
 
       <section class="card">
         <h3>Share with your accountants</h3>
@@ -59,4 +61,36 @@ export function SettingsPage({ ctx, version }) {
       </section>
       <p class="hint center">VH5 ${version}</p>
     </div>`;
+}
+
+// Passkeys: sign in with Face ID / Touch ID instead of a password. One per device or password manager.
+function Passkeys() {
+  const [list, setList] = useState(null);
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  const load = () => api.listPasskeys().then(setList).catch((e) => { setList([]); setMsg(e.message); });
+  useEffect(() => { load(); }, []);
+  const add = async () => {
+    setBusy(true); setMsg('');
+    try { if (await api.addPasskey()) { setMsg('Passkey added. Next time, choose “Sign in with a passkey”.'); load(); } }
+    catch (e) { setMsg(e.message); } finally { setBusy(false); }
+  };
+  const remove = async (p) => {
+    if (!confirm(`Remove the passkey “${p.friendly_name || 'Passkey'}”? You can still sign in with your password.`)) return;
+    try { await api.removePasskey(p.id); load(); } catch (e) { setMsg(e.message); }
+  };
+  return html`
+    <section class="card">
+      <h3>Passkeys</h3>
+      <p class="hint">Sign in with Face ID or Touch ID instead of your password. A passkey in iCloud Keychain works on your iPhone, iPad and Mac. Your password keeps working.</p>
+      <div class="passkey-list">
+        ${list === null ? html`<p class="hint">Loading…</p>` : list.length ? list.map((p) => html`
+          <div class="row"><span class="what"><strong>${p.friendly_name || 'Passkey'}</strong>
+            <small>added ${fmtDate(p.created_at.slice(0, 10))}${p.last_used_at ? ` · last used ${fmtDate(p.last_used_at.slice(0, 10))}` : ''}</small></span>
+            <button class="link danger" onClick=${() => remove(p)}>Remove</button></div>`)
+        : html`<p class="hint">No passkeys yet.</p>`}
+      </div>
+      <button class="primary" disabled=${busy} onClick=${add}>${busy ? 'Waiting for your device…' : 'Add a passkey'}</button>
+      ${msg && html`<p class="msg">${msg}</p>`}
+    </section>`;
 }

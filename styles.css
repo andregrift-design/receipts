@@ -317,6 +317,11 @@ td small { color: var(--muted); }
 .auth-card { width: 100%; max-width: 380px; padding: 28px; }
 .auth-card button { width: 100%; margin-top: 6px; padding: 12px; }
 .auth-logo { width: 76px; height: 76px; border-radius: 18px; box-shadow: 0 2px 10px rgba(70, 50, 30, .2); margin-bottom: 14px; }
+.auth-or { display: flex; align-items: center; gap: 10px; margin: 14px 0 6px; color: var(--muted); font-size: 13px; }
+.auth-or::before, .auth-or::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
+.passkey-btn { display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600; }
+.passkey-btn svg { width: 20px; height: 20px; }
+.passkey-list .row { padding: 10px 0; }
 .auth-links { display: flex; justify-content: space-between; margin-top: 16px; font-size: 14px; }
 .settings { max-width: 680px; margin: 0 auto; }
 .row-form { display: flex; gap: 8px; }

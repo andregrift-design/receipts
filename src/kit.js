@@ -117,6 +117,7 @@ export const Cols = ({ count = true, amounts = 3, extra = [] }) => html`
 
 const svg = (d) => html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
 export const Icon = {
+  passkey: svg(html`<circle cx="9" cy="8" r="4" /><path d="M2 21v-1a6 6 0 0 1 10-4.5" /><circle cx="17.5" cy="14.5" r="2.5" /><path d="M17.5 17v4.5l1.5-1.2M17.5 19.5l1.3-1" />`),
   home: svg(html`<path d="M3 11 12 4l9 7" /><path d="M5 10v10h14V10" /><path d="M10 20v-6h4v6" />`),
   expenses: svg(html`<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z" /><path d="M9 8h6M9 12h6" />`),
   income: svg(html`<path d="M12 3v18" /><path d="M17 7.5c0-1.9-2.2-3-5-3s-5 1.1-5 3 2.2 2.6 5 3 5 1.1 5 3-2.2 3-5 3-5-1.1-5-3" />`),

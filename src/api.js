@@ -2,16 +2,60 @@
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
 import { problems, statementProblems } from './vat.js';
 
-const SUPABASE_JS = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/+esm';
+const SUPABASE_JS = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/+esm';
 
 export let sb = null;
 
 export async function initClient() {
   const { createClient } = await import(SUPABASE_JS);
   sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+    // Passkeys are a beta in Supabase Auth; the client has to opt in.
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, experimental: { passkey: true } },
   });
   return sb;
+}
+
+// ---------- passkeys (Face ID, Touch ID, iCloud Keychain, ...) ----------
+
+export const passkeysSupported = () => !!window.PublicKeyCredential && window.isSecureContext;
+
+// Plain-language errors; null when the person simply closed the system prompt.
+function passkeyError(error) {
+  const code = error?.code || error?.error_code || '';
+  if (error?.name === 'NotAllowedError' || /ABORT|CANCEL|NotAllowed/i.test(`${code} ${error?.message}`)) return null;
+  const known = {
+    passkey_disabled: 'Passkeys aren’t switched on for VH5 yet.',
+    too_many_passkeys: 'This account has the maximum number of passkeys. Remove one in Settings first.',
+    webauthn_credential_exists: 'This device already has a passkey for your account.',
+    webauthn_credential_not_found: 'That passkey isn’t known to VH5 (it may have been removed). Sign in with your password.',
+    webauthn_challenge_expired: 'That took too long. Try again.',
+    webauthn_verification_failed: 'The passkey couldn’t be verified. Try again.',
+    email_not_confirmed: 'Confirm your email address first.',
+  };
+  return new Error(known[code] || error.message || String(error));
+}
+
+export async function signInWithPasskey() {
+  const { error } = await sb.auth.signInWithPasskey();
+  if (error) { const e = passkeyError(error); if (e) throw e; return false; }
+  return true;
+}
+
+export async function addPasskey() {
+  const { data, error } = await sb.auth.registerPasskey();
+  if (error) { const e = passkeyError(error); if (e) throw e; return null; }
+  return data;
+}
+
+export async function listPasskeys() {
+  const { data, error } = await sb.auth.passkey.list();
+  if (error) throw passkeyError(error) || error;
+  return data || [];
+}
+
+export async function removePasskey(passkeyId) {
+  const { error } = await sb.auth.passkey.delete({ passkeyId });
+  if (error) throw passkeyError(error) || error;
 }
 
 // ---------- receipts ----------

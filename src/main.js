@@ -10,7 +10,7 @@ import { OverviewPage } from './overview.js';
 import { SettingsPage } from './settings.js';
 import { Spotlight } from './search.js';
 
-const VERSION = '2.3.1';
+const VERSION = '2.4';
 
 // ---------- sign in ----------
 
@@ -42,6 +42,10 @@ function SignIn() {
       setBusy(false);
     }
   };
+  const passkey = async () => {
+    setBusy(true); setMsg('');
+    try { await api.signInWithPasskey(); } catch (err) { setMsg(err.message); } finally { setBusy(false); }
+  };
   const link = (to, label) => html`<a href="#" onClick=${(e) => { e.preventDefault(); setMode(to); setMsg(''); }}>${label}</a>`;
   return html`
     <div class="auth">
@@ -52,6 +56,9 @@ function SignIn() {
         <label>Email<input type="email" autocomplete="email" required value=${email} onInput=${(e) => setEmail(e.target.value)} /></label>
         ${mode !== 'forgot' && html`<label>Password<input type="password" autocomplete=${mode === 'signup' ? 'new-password' : 'current-password'} required minlength="8" value=${password} onInput=${(e) => setPassword(e.target.value)} /></label>`}
         <button class="primary" disabled=${busy}>${mode === 'signin' ? 'Sign in' : mode === 'signup' ? 'Create account' : 'Send link'}</button>
+        ${mode === 'signin' && api.passkeysSupported() && html`
+          <div class="auth-or"><span>or</span></div>
+          <button type="button" class="passkey-btn" disabled=${busy} onClick=${passkey}>${Icon.passkey}<span>Sign in with a passkey</span></button>`}
         ${msg && html`<p class="msg">${msg}</p>`}
         <div class="auth-links">
           ${mode !== 'signin' && link('signin', 'Sign in')}
