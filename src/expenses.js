@@ -386,7 +386,7 @@ export function ReceiptEditor({ receipt, ctx }) {
             </div>
             ${form.currency !== 'EUR' && html`
               <div class="grid g2">
-                <label>Exchange rate (EUR per ${form.currency})
+                <label>Exchange rate${form.currency !== 'EUR' ? ` (EUR per ${form.currency})` : ''}
                   <${NumInput} label="Exchange rate" decimals=${6} value=${form.fx_rate} onInput=${(v) => { fxTouched.current = true; set({ fx_rate: v, fx_date: null }); }} />
                 </label>
                 <p class="hint fx">${fx == null ? 'Fills in from the ECB once the date is set.' : form.fx_date

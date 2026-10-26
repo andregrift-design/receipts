@@ -285,7 +285,7 @@ export function StatementEditor({ statement, ctx }) {
                 ${[...new Set([...CURRENCIES, form.currency])].map((c) => html`<option value=${c}>${c}</option>`)}
               </select>
             </label>
-            <label>Exchange rate (EUR per ${form.currency})
+            <label>Exchange rate${form.currency !== 'EUR' ? ` (EUR per ${form.currency})` : ''}
               <${NumInput} label="Exchange rate" decimals=${6} disabled=${form.currency === 'EUR'} value=${form.currency === 'EUR' ? '1.000000' : form.fx_rate}
                 onInput=${(v) => { fxTouched.current = true; set({ fx_rate: v, fx_date: null }); }} />
             </label>

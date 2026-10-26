@@ -67,6 +67,14 @@ input, select, textarea {
   width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--card);
   font-size: 16px; /* no zoom on iOS */
 }
+/* One height for every single-line field: Safari draws selects and date fields shorter or taller by default. */
+input:not([type=checkbox]):not([type=radio]):not([type=file]), select { height: 42px; line-height: 1.2; }
+select { -webkit-appearance: none; appearance: none; padding-right: 30px; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: right 16px center, right 11px center; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; }
+input[type=date] { -webkit-appearance: none; appearance: none; display: block; min-width: 0; text-align: left; }
+input[type=date]::-webkit-date-and-time-value { text-align: left; margin: 0; }
+input[type=date]::-webkit-datetime-edit { padding: 0; }
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--ink); outline-offset: -1px; border-color: transparent; }
 input.num { text-align: right; font-variant-numeric: tabular-nums; }
 input.invalid { border-color: var(--bad); }
@@ -116,7 +124,7 @@ small { color: var(--muted); }
 .searchbtn { display: flex; align-items: center; gap: 8px; color: var(--muted); padding: 7px 12px; border-radius: 10px; min-width: 190px; }
 .searchbtn svg { width: 18px; height: 18px; flex: none; }
 .searchbtn kbd { margin-left: auto; font: 12px var(--font); border: 1px solid var(--line); border-radius: 5px; padding: 0 5px; }
-.account { width: auto; max-width: 220px; padding: 6px 8px; font-size: 14px; }
+.account { width: auto; max-width: 220px; height: 36px; padding: 0 28px 0 10px; font-size: 14px; }
 .banner { padding: 8px 16px; background: var(--warn-soft); color: var(--warn); font-size: 14px; text-align: center; }
 .banner.info { background: var(--info-soft); color: var(--info); }
 .main { max-width: 1120px; margin: 0 auto; padding: 22px max(18px, env(safe-area-inset-left)) 60px; }
@@ -198,7 +206,7 @@ td small { color: var(--muted); }
 
 .editor-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
 .back { font-size: 16px; text-decoration: none; }
-.editor-body { display: grid; gap: 16px; }
+.editor-body { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
 @media (min-width: 900px) {
   .editor-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); align-items: start; }
   .editor-body.wide { grid-template-columns: minmax(0, .85fr) minmax(0, 1.4fr); }
@@ -223,6 +231,8 @@ td small { color: var(--muted); }
 .g6 { grid-template-columns: repeat(6, 1fr); }
 .g-addr { grid-template-columns: 2fr 1fr; }
 .g-job { grid-template-columns: 2fr 1.3fr 1.2fr 1.2fr; }
+/* A label that wraps must not push its field down: fields sit on the bottom of the row. */
+:is(.g2, .g3, .g4, .g6, .g-addr, .g-job) > label { display: flex; flex-direction: column; justify-content: flex-end; }
 @media (max-width: 560px) { .g3, .g4, .g6, .g-job { grid-template-columns: 1fr 1fr; } .g-addr { grid-template-columns: 1fr; } }
 .note { background: var(--warn-soft); color: var(--warn); border-radius: 10px; padding: 9px 12px; font-size: 14px; margin-bottom: 12px; }
 .note ul { margin: 4px 0 0; padding-left: 18px; }
@@ -275,7 +285,7 @@ td small { color: var(--muted); }
 .dialog { width: 100%; max-width: 520px; background: var(--card); border-radius: 18px; padding: 20px; box-shadow: 0 24px 70px rgba(40, 25, 10, .28); }
 .dialog h2 { margin: 0 0 6px; }
 .spotlight { max-width: 640px; padding: 0; overflow: hidden; }
-.spotlight input { border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: 16px 18px; font-size: 19px; }
+.spotlight input:not([type=checkbox]) { height: 56px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: 16px 18px; font-size: 19px; }
 .spotlight input:focus { outline: none; }
 .results { max-height: 60vh; overflow: auto; padding: 6px 0; }
 .results .kicker { padding: 10px 18px 4px; margin: 0; }
@@ -315,7 +325,7 @@ td small { color: var(--muted); }
 
 .picker { display: block; max-width: 520px; margin: 16px 0 24px; }
 .picker .kicker { display: block; margin: 0 2px 6px; }
-.picker select { -webkit-appearance: none; appearance: none; width: 100%; padding: 13px 44px 13px 16px; font-size: 16px; font-weight: 600; cursor: pointer;
+.picker select { -webkit-appearance: none; appearance: none; width: 100%; height: 50px; padding: 0 44px 0 16px; font-size: 16px; font-weight: 600; cursor: pointer;
   background-color: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow);
   background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
   background-position: right 22px center, right 16px center; background-size: 6px 6px, 6px 6px; background-repeat: no-repeat; }
