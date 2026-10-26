@@ -9,8 +9,9 @@ import { HomePage } from './home.js';
 import { OverviewPage } from './overview.js';
 import { SettingsPage } from './settings.js';
 import { Spotlight } from './search.js';
+import { Celebration, countAdded } from './confetti.js';
 
-const VERSION = '2.4.1';
+const VERSION = '2.5';
 
 // ---------- sign in ----------
 
@@ -132,6 +133,8 @@ function Shell({ user }) {
   const [dragging, setDragging] = useState(false);
   const [searching, setSearching] = useState(false);
   const [pendingStatements, setPendingStatements] = useState(null);
+  const [celebrate, setCelebrate] = useState(false);
+  const added = (n) => { if (countAdded(user.id, n)) setCelebrate(true); };
 
   const email = (user.email || '').toLowerCase();
   const sharedWithMe = shares.filter((s) => s.viewer_email === email && s.owner_id !== user.id);
@@ -186,13 +189,13 @@ function Shell({ user }) {
   const addFiles = async (files, kind = 'receipt', extra = {}) => {
     if (!files?.length) return;
     if (!mine) setOwner(user.id);
-    try { await api.addFiles([...files], user.id, kind, extra); } catch (e) { alert(e.message); }
+    try { await api.addFiles([...files], user.id, kind, extra); if (kind === 'receipt') added(files.length); } catch (e) { alert(e.message); }
     reportDropped();
     await refreshQueue();
     reload();
   };
   const addManual = async (extra = {}) => {
-    try { const r = await api.createManual(user.id, extra); setReceipts((list) => (list && !list.some((x) => x.id === r.id) ? [r, ...list] : list)); go(`r/${r.id}`); }
+    try { const r = await api.createManual(user.id, extra); setReceipts((list) => (list && !list.some((x) => x.id === r.id) ? [r, ...list] : list)); go(`r/${r.id}`); added(1); }
     catch (e) { alert(e.message); }
   };
   const removeQueued = async (item) => {
@@ -263,6 +266,7 @@ function Shell({ user }) {
       ${!mine && html`<div class="banner info">You’re viewing ${ownerLabel} (read-only).</div>`}
       <main class="main">${body}</main>
       ${dragging && html`<div class="dropzone">${page === 'income' ? 'Drop agency statements to import them' : 'Drop receipts to add them'}</div>`}
+      ${celebrate && html`<${Celebration} onClose=${() => setCelebrate(false)} />`}
       ${searching && html`<${Spotlight} ctx=${ctx} onClose=${() => setSearching(false)} />`}
       ${pendingStatements && html`<${BookingDialog} files=${pendingStatements} filed=${filed}
         onCancel=${() => setPendingStatements(null)}
