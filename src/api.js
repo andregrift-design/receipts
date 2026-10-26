@@ -213,6 +213,7 @@ async function outbox(mode, fn) {
   });
 }
 export const queued = () => outbox('readonly', (s) => s.getAll());
+export const unqueue = (id) => outbox('readwrite', (s) => s.delete(id));
 
 // Phone photos are large: scale to 2000 px on the long side, JPEG. PDFs pass through.
 async function prepareFile(file) {
@@ -265,16 +266,32 @@ export function flushOutbox() {
       if (!items.length) return;
       if (!navigator.onLine) return;
       for (const item of items) {
-        // Items queued by older versions can hold a file that can no longer be read: drop them and say so.
-        if (!item.blob || !item.blob.size) {
+        // Items queued by older versions can hold a file that can no longer be read (iOS still reports
+        // its size): read it now, and drop it with a message if that fails or it is empty.
+        let body = null;
+        try {
+          const bytes = item.blob ? await item.blob.arrayBuffer() : null;
+          if (bytes && bytes.byteLength) body = new Blob([bytes], { type: item.type });
+        } catch {}
+        if (!body) {
           await outbox('readwrite', (s) => s.delete(item.id));
           dropped++;
           continue;
         }
         const statement = item.kind === 'statement';
         const path = `${item.userId}/${statement ? 'st-' : ''}${item.id}.${item.ext}`;
-        const up = await sb.storage.from('receipts').upload(path, item.blob, { contentType: item.type, upsert: true });
-        if (up.error) { lastUploadError = up.error.message; console.warn('upload failed', up.error); return; }
+        const up = await sb.storage.from('receipts').upload(path, body, { contentType: item.type, upsert: true });
+        if (up.error) {
+          // The server calls it empty: retrying will not help.
+          if (/no content|empty/i.test(up.error.message || '')) {
+            await outbox('readwrite', (s) => s.delete(item.id));
+            dropped++;
+            continue;
+          }
+          lastUploadError = up.error.message;
+          console.warn('upload failed', up.error);
+          return;
+        }
         const ins = await sb.from(statement ? 'statements' : 'receipts').upsert({ id: item.id, user_id: item.userId, file_path: path, file_type: item.type, status: 'processing' });
         if (ins.error) { lastUploadError = ins.error.message; console.warn('insert failed', ins.error); return; }
         await outbox('readwrite', (s) => s.delete(item.id));

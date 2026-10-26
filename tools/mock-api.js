@@ -44,6 +44,7 @@ export const myShares = async () => [{ owner_id: 'me', viewer_email: 'cpa@exampl
 export const addShare = async () => {};
 export const removeShare = async () => {};
 export const queued = async () => [];
+export const unqueue = async () => {};
 export const addFiles = async () => {};
 export const flushOutbox = async () => {};
 export const takeDropped = () => 0;

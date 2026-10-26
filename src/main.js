@@ -7,7 +7,7 @@ import {
 } from './vat.js';
 import { downloadExcel, downloadPdf, downloadZip, numbered } from './export.js';
 
-const VERSION = '1.8';
+const VERSION = '1.8.1';
 
 // ---------- helpers ----------
 
@@ -238,6 +238,12 @@ function Main({ user }) {
     } catch (e) { alert(e.message); }
   };
 
+  const removeQueued = async (item) => {
+    if (!confirm('Remove this file from the upload queue? You can import it again afterwards.')) return;
+    await api.unqueue(item.id);
+    refreshQueue();
+  };
+
   const onDrop = (e) => {
     e.preventDefault();
     setDragging(false);
@@ -255,10 +261,10 @@ function Main({ user }) {
   } else if (view === 's') {
     const st = statements.find((x) => x.id === arg);
     body = st ? html`<${StatementEditor} statement=${st} known=${statements} readOnly=${!mine} key=${st.id} />` : html`<p class="boot">Statement not found. <a href="#/income">Back</a></p>`;
-  } else if (view === 'income') body = html`<${Income} statements=${statements} queue=${mine ? queue.filter((i) => i.kind === 'statement') : []} canAdd=${mine} addFiles=${(f) => addFiles(f, 'statement')} />`;
+  } else if (view === 'income') body = html`<${Income} statements=${statements} queue=${mine ? queue.filter((i) => i.kind === 'statement') : []} canAdd=${mine} addFiles=${(f) => addFiles(f, 'statement')} removeQueued=${removeQueued} />`;
   else if (view === 'quarter') body = html`<${Quarter} receipts=${receipts} statements=${statements} arg=${arg} owner=${ownerLabel} />`;
   else if (view === 'settings') body = html`<${Settings} user=${user} viewers=${myViewers} sharedWithMe=${sharedWithMe} reload=${loadShares} />`;
-  else body = html`<${List} receipts=${receipts} queue=${mine ? queue.filter((i) => i.kind !== 'statement') : []} canAdd=${mine} addFiles=${addFiles} addManual=${addManual} />`;
+  else body = html`<${List} receipts=${receipts} queue=${mine ? queue.filter((i) => i.kind !== 'statement') : []} canAdd=${mine} addFiles=${addFiles} addManual=${addManual} removeQueued=${removeQueued} />`;
 
   return html`
     <div class="app ${dragging ? 'dragging' : ''}"
@@ -286,6 +292,15 @@ function Main({ user }) {
 }
 
 // ---------- list ----------
+
+function QueuedRow({ item, label, onRemove }) {
+  return html`
+    <div class="row">
+      <span class="what">${label} from ${new Date(item.added).toLocaleString('en-US')}</span>
+      <${Badge} status="queued" />
+      <button class="link danger" onClick=${() => onRemove(item)}>Remove</button>
+    </div>`;
+}
 
 const hasCamera = !!navigator.mediaDevices?.getUserMedia;
 
@@ -429,7 +444,7 @@ function Camera({ addFiles, close, fallback }) {
     </div>`;
 }
 
-function List({ receipts, queue, canAdd, addFiles, addManual }) {
+function List({ receipts, queue, canAdd, addFiles, addManual, removeQueued }) {
   const [filter, setFilter] = useState(localStorage.getItem('filter') || 'all');
   const [q, setQ] = useState('');
   const setF = (f) => { setFilter(f); localStorage.setItem('filter', f); };
@@ -459,7 +474,7 @@ function List({ receipts, queue, canAdd, addFiles, addManual }) {
       </div>
       ${queue.length > 0 && html`
         <section class="card">
-          ${queue.map((i) => html`<div class="row"><span class="what">Photo from ${new Date(i.added).toLocaleString('en-US')}</span><${Badge} status="queued" /></div>`)}
+          ${queue.map((i) => html`<${QueuedRow} item=${i} label="Photo" onRemove=${removeQueued} />`)}
           ${api.lastUploadError && html`<p class="hint bad">Upload problem: ${api.lastUploadError}</p>`}
         </section>`}
       ${!receipts.length && !queue.length && html`
@@ -729,7 +744,7 @@ function Editor({ receipt, readOnly }) {
 
 // ---------- agency statements (income) ----------
 
-function Income({ statements, queue, canAdd, addFiles }) {
+function Income({ statements, queue, canAdd, addFiles, removeQueued }) {
   const input = useRef();
   const agencies = useMemo(() => agencyOverview(statements), [statements]);
   const [sel, setSel] = useState(localStorage.getItem('agency') || '');
@@ -763,7 +778,7 @@ function Income({ statements, queue, canAdd, addFiles }) {
         </div>
         <${ClientsCard} agencies=${agency ? [agency] : agencies} single=${!!agency} />`}
       ${queue.length > 0 && html`
-        <section class="card">${queue.map((i) => html`<div class="row"><span class="what">Statement from ${new Date(i.added).toLocaleString('en-US')}</span><${Badge} status="queued" /></div>`)}
+        <section class="card">${queue.map((i) => html`<${QueuedRow} item=${i} label="Statement" onRemove=${removeQueued} />`)}
           ${api.lastUploadError && html`<p class="hint bad">Upload problem: ${api.lastUploadError}</p>`}</section>`}
       ${!statements.length && !queue.length && html`<div class="empty"><p>No agency statements yet.</p></div>`}
       ${groups.map((g) => html`

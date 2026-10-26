@@ -107,6 +107,11 @@ eq('pdf with income', files['incpdf.pdf'].size > 5000, true);
   let msg = '';
   try { await real.addFiles([new File([], 'empty.pdf', { type: 'application/pdf' })], 'test-user', 'statement'); } catch (e) { msg = e.message; }
   eq('empty pdf refused', msg.includes('empty.pdf: the file is empty'), true);
+  // A queued file that can no longer be read is removed, not retried forever.
+  const db2 = await new Promise((res) => { const r = indexedDB.open('receipts', 1); r.onsuccess = () => res(r.result); });
+  await new Promise((res) => { const t = db2.transaction('outbox', 'readwrite'); t.objectStore('outbox').put({ id: 'stuck', userId: 'test-user', kind: 'statement', blob: new Blob([]), type: 'application/pdf', ext: 'pdf', added: '2026-10-26T10:00:00Z' }); t.oncomplete = res; });
+  await real.flushOutbox();
+  eq('unreadable queued file removed', [(await real.queued()).some((i) => i.id === 'stuck'), real.takeDropped()], [false, 1]);
 }
 // Agencies and clients (made-up data)
 {
