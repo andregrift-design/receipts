@@ -1,0 +1,47 @@
+# Receipts
+
+Photograph a receipt; Claude reads the store, date, amount, currency and VAT. You check what it found, fill in what's missing, and at the end of each quarter you (or your accountant) download an overview per VAT category.
+
+Works on iPhone, iPad and Mac as a home-screen app. Everything syncs through your account.
+
+Live at **https://andregrift-design.github.io/receipts/**
+
+## How it works
+
+- **Add**: Take photo (camera) or Upload files (photos and PDFs, several at once). On a laptop you can drop files onto the page. Offline, photos wait on the device and upload when you're back online.
+- **Read**: the `extract` edge function sends the photo to Claude and fills in store, description, category, date, currency, total, VAT country and one line per VAT rate. Foreign currencies get the ECB rate of the receipt date.
+- **Check**: a receipt is **Done** when the date, store or description, amount, exchange rate and VAT are filled in and the VAT lines add up to the total. Anything else shows as **Check** with what's missing. The editor shows the photo next to the fields; "Fill" splits the total into net and VAT for the chosen rate.
+- **Quarter**: summary per VAT category (21%, 9%, 0%, no VAT, foreign VAT per country and rate, VAT not entered) in EUR, with the Dutch input VAT total. Downloads: CSV (summary + one row per VAT line), ZIP (CSV + all photos, numbered to match), or Print / PDF.
+- **Accountant**: Settings → Share with your accountant → their email. They create an account with that email at the same address and see your receipts and overviews read-only.
+
+## Setup (already done)
+
+Supabase project `receipts` (Frankfurt, separate from Ataraxia's `stoa`):
+
+1. `supabase/schema.sql` in the SQL Editor: tables `receipts` and `shares`, row-level security, realtime, private storage bucket `receipts`.
+2. `supabase/functions/extract/index.ts` deployed as edge function `extract` with "Verify JWT with legacy secret" **off** (the function checks the signed-in user itself).
+3. Edge Functions → Secrets: `ANTHROPIC_API_KEY` (create one at console.anthropic.com → API keys).
+4. Authentication → URL Configuration: Site URL `https://andregrift-design.github.io/receipts/`, redirect URL `https://andregrift-design.github.io/receipts/**`.
+5. `src/config.js` holds the project URL and publishable key (public by design).
+
+After you and your accountant have accounts: Authentication → Sign In / Providers → turn off **Allow new users to sign up**.
+
+## Hosting
+
+GitHub Pages from `main` of `andregrift-design/receipts`. To ship a change: commit, bump `VERSION` in `sw.js`, push.
+
+## Files
+
+| File | Purpose |
+| --- | --- |
+| `src/main.js` | Screens: sign-in, list, editor, quarter, settings |
+| `src/api.js` | Supabase calls, photo resize, offline upload queue |
+| `src/vat.js` | VAT categories, checks, quarter totals |
+| `src/export.js` | CSV and ZIP export |
+| `supabase/` | Database schema and the receipt reader |
+| `tools/test.html` | Logic tests: open `/tools/test.html` on a local server |
+| `tools/make-icon.swift` | Draws the app icons |
+
+## Costs
+
+Supabase free tier (500 MB database, 1 GB photos: roughly 4,000 receipts). Claude: about 1–2 cents per receipt. Free-tier projects pause after a week without use; opening the dashboard wakes them.

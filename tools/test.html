@@ -1,0 +1,38 @@
+<!doctype html><meta charset="utf-8"><title>Receipts tests</title>
+<pre id="out">running…</pre>
+<script type="module">
+import { problems, summarize, splitGross, quarterRange, quarterLabel, vatLabel } from '../src/vat.js';
+import { buildCsv, numbered } from '../src/export.js';
+const out = []; let fail = 0;
+const eq = (name, a, b) => { const ok = JSON.stringify(a) === JSON.stringify(b); if (!ok) fail++; out.push(`${ok ? 'PASS' : 'FAIL'} ${name}${ok ? '' : `\n   got ${JSON.stringify(a)}\n   want ${JSON.stringify(b)}`}`); };
+const base = { id: '', status: 'done', currency: 'EUR', vat_country: 'NL', created_at: '2026-01-01T00:00:00Z', file_path: 'u/x.jpg' };
+const rs = [
+  { ...base, id: 'a', receipt_date: '2026-07-03', store: 'Albert Heijn', total: 31.30, vat_lines: [{ rate: 9, net: 20, vat: 1.8 }, { rate: 21, net: 7.85, vat: 1.65 }] },
+  { ...base, id: 'b', receipt_date: '2026-08-10', store: 'Shell', total: 121, vat_lines: [{ rate: 21, net: 100, vat: 21 }] },
+  { ...base, id: 'c', receipt_date: '2026-09-01', store: 'Hotel Berlin', total: 119, vat_country: 'DE', vat_lines: [{ rate: 19, net: 100, vat: 19 }] },
+  { ...base, id: 'd', receipt_date: '2026-09-02', store: 'NYC cab', total: 50, currency: 'USD', fx_rate: 0.9, vat_country: 'US', vat_lines: [{ rate: null, net: 50, vat: 0 }] },
+  { ...base, id: 'e', receipt_date: '2026-09-03', store: 'Parking', total: 5, status: 'review', vat_lines: [] },
+];
+const s = summarize(rs);
+eq('groups order', s.groups.map((g) => g.key), ['NL:21', 'NL:9', 'none', 'DE:19', 'unknown']);
+eq('21% group', [s.groups[0].count, s.groups[0].net, s.groups[0].vat, s.groups[0].gross], [2, 107.85, 22.65, 130.5]);
+eq('USD converted', [s.groups[2].net, s.groups[2].gross], [45, 45]);
+eq('home VAT', s.homeVat, 24.45);
+eq('total gross', s.total.gross, 31.3 + 121 + 119 + 45 + 5);
+eq('open', s.open.map((r) => r.id), ['e']);
+eq('labels', ['NL:21', 'NL:9', 'none', 'DE:19'].map(vatLabel), ['21% VAT (high rate)', '9% VAT (low rate)', 'No VAT / exempt', 'Foreign VAT: Germany 19%']);
+eq('problems complete', problems(rs[0]), []);
+eq('problems missing', problems({ currency: 'USD', vat_lines: [] }), ['date', 'store or description', 'amount', 'exchange rate', 'VAT']);
+eq('problems sum', problems({ ...rs[1], total: 130 }), ['VAT lines don’t add up to the total']);
+eq('split 21', splitGross(121, 21), { net: 100, vat: 21 });
+eq('split 9', splitGross(10, 9), { net: 9.17, vat: 0.83 });
+eq('split none', splitGross(10, null), { net: 10, vat: 0 });
+eq('Q3 range', quarterRange(2026, 3), { start: '2026-07-01', end: '2026-09-30' });
+eq('Q1 leap', quarterRange(2028, 1).end, '2028-03-31');
+eq('label', quarterLabel(2026, 4), 'Q4 2026 (Oct–Dec)');
+eq('numbering', numbered(rs).map((n) => n.file), ['001_2026-07-03_Albert-Heijn.jpg', '002_2026-08-10_Shell.jpg', '003_2026-09-01_Hotel-Berlin.jpg', '004_2026-09-02_NYC-cab.jpg', '005_2026-09-03_Parking.jpg']);
+localStorage.setItem('numberFormat', 'nl');
+const csv = buildCsv(rs, { title: 'Q3 2026', owner: 'me@example.com' });
+out.push('\n--- CSV (nl) ---\n' + csv);
+document.getElementById('out').textContent = `${fail ? fail + ' FAILED' : 'ALL PASS'}\n\n` + out.join('\n');
+</script>
