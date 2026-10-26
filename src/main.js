@@ -474,13 +474,13 @@ function Editor({ receipt, readOnly }) {
               </label>
               <label>Currency
                 <select value=${form.currency} onChange=${(e) => { fxTouched.current = false; set({ currency: e.target.value, fx_rate: e.target.value === 'EUR' ? '' : form.fx_rate }); }}>
-                  ${[...new Set([...CURRENCIES, form.currency])].map((c) => html`<option>${c}</option>`)}
+                  ${[...new Set([...CURRENCIES, form.currency])].map((c) => html`<option value=${c}>${c}</option>`)}
                 </select>
               </label>
               <label>Category
                 <select value=${form.category || ''} onChange=${(e) => set({ category: e.target.value })}>
                   <option value="">–</option>
-                  ${CATEGORIES.map((c) => html`<option>${c}</option>`)}
+                  ${CATEGORIES.map((c) => html`<option value=${c}>${c}</option>`)}
                 </select>
               </label>
             </div>
@@ -569,7 +569,7 @@ function Quarter({ receipts, arg, owner }) {
       <p class="print-only">${owner} · printed ${new Date().toLocaleDateString('en-US')}</p>
 
       ${s.open.length > 0 && html`
-        <div class="note">${s.open.length} receipt${s.open.length > 1 ? 's' : ''} in this quarter still need checking:
+        <div class="note">${s.open.length} receipt${s.open.length > 1 ? 's' : ''} in this quarter still need${s.open.length > 1 ? '' : 's'} checking:
           ${s.open.map((r, i) => html`${i ? ', ' : ' '}<a href=${`#/r/${r.id}`}>${r.store || r.description || fmtDate(r.receipt_date)}</a>`)}.</div>`}
       ${undated.length > 0 && html`<div class="note">${undated.length} receipt${undated.length > 1 ? 's have' : ' has'} no date and ${undated.length > 1 ? 'are' : 'is'} not in any quarter. <a href="#/">Fix in the list</a>.</div>`}
 
@@ -577,7 +577,7 @@ function Quarter({ receipts, arg, owner }) {
         <table class="summary">
           <thead><tr><th>VAT category</th><th class="n">Receipts</th><th class="n">Net</th><th class="n">VAT</th><th class="n">Gross</th></tr></thead>
           <tbody>
-            ${s.groups.map((g) => html`<tr><td>${g.label}</td><td class="n">${g.count}</td><td class="n">${money(g.net)}</td><td class="n">${money(g.vat)}</td><td class="n">${money(g.gross)}</td></tr>`)}
+            ${s.groups.map((g) => html`<tr><td>${g.label}</td><td class="n">${g.count}</td><td class="n">${g.key === 'unknown' ? '–' : money(g.net)}</td><td class="n">${g.key === 'unknown' ? '–' : money(g.vat)}</td><td class="n">${money(g.gross)}</td></tr>`)}
             ${!s.groups.length && html`<tr><td colspan="5" class="hint">No receipts in this quarter.</td></tr>`}
           </tbody>
           <tfoot><tr><td>Total</td><td class="n">${inQ.length}</td><td class="n">${money(s.total.net)}</td><td class="n">${money(s.total.vat)}</td><td class="n">${money(s.total.gross)}</td></tr></tfoot>
