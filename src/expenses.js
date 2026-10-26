@@ -20,20 +20,25 @@ export function QueuedRow({ item, label, onRemove }) {
 
 const hasCamera = !!navigator.mediaDevices?.getUserMedia;
 
-function AddButtons({ addFiles, addManual }) {
+function AddButtons({ addFiles: add, addManual }) {
   const camera = useRef();
   const files = useRef();
   const [open, setOpen] = useState(false);
+  const [annual, setAnnual] = useState(false);
+  const extra = annual ? { annual_only: true } : {};
+  const addFiles = (f) => add(f, extra);
   const pick = (ref) => ref.current.click();
   const onPick = (e) => { addFiles(e.target.files); e.target.value = ''; };
   return html`
     <div class="actions">
       <button class="primary big" onClick=${() => (hasCamera ? setOpen(true) : pick(camera))}>📷 Take photo</button>
       <button class="big" onClick=${() => pick(files)}>Photos & files</button>
-      <button class="big" onClick=${addManual} title="No receipt? Enter it by hand and attach a payment receipt later">Enter by hand</button>
+      <button class="big" onClick=${() => addManual(extra)} title="No receipt? Enter it by hand and attach a payment receipt later">Enter by hand</button>
       <input ref=${camera} type="file" accept="image/*" capture="environment" hidden onChange=${onPick} />
       <input ref=${files} type="file" accept="image/*,application/pdf" multiple hidden onChange=${onPick} />
     </div>
+    <label class="check annual-pick"><input type="checkbox" checked=${annual} onChange=${(e) => setAnnual(e.target.checked)} />
+      <span><strong>Import as annual costs only</strong> · not for the VAT return. The CPA uses these for the annual cost calculation only.</span></label>
     ${open && html`<${Camera} addFiles=${addFiles} close=${() => setOpen(false)}
       fallback=${(which) => { setOpen(false); pick(which === 'camera' ? camera : files); }} />`}`;
 }
@@ -174,7 +179,7 @@ export function ExpensesPage({ ctx }) {
     <div class="page-head">
       <div><p class="kicker">Receipts and costs</p><h1>Expenses</h1></div>
     </div>
-    ${mine && html`<${AddButtons} addFiles=${(f) => ctx.addFiles(f, 'receipt')} addManual=${ctx.addManual} />`}
+    ${mine && html`<${AddButtons} addFiles=${(f, extra) => ctx.addFiles(f, 'receipt', extra)} addManual=${ctx.addManual} />`}
     <div class="toolbar">
       <button class=${filter === 'all' ? 'chip on' : 'chip'} onClick=${() => setF('all')}>All (${receipts.length})</button>
       <button class=${filter === 'open' ? 'chip on' : 'chip'} onClick=${() => setF('open')}>Needs checking (${open.length})</button>
@@ -206,6 +211,7 @@ function ReceiptRow({ r, ctx }) {
       </span>
       <span class="badges">
         <${PeriodBadges} rec=${r} filed=${ctx.filed} all=${ctx.receipts} />
+        ${r.annual_only && html`<span class="badge st-annual" title="Annual cost calculation only, not on the VAT return">Annual only</span>`}
         ${weakProof(r) && r.status !== 'processing' && html`<span class="badge st-weak">${r.doc_type === 'payment' ? 'Payment only' : 'No document'}</span>`}
         ${r.status !== 'done' && html`<${Badge} status=${r.status} />`}
       </span>
@@ -363,6 +369,8 @@ export function ReceiptEditor({ receipt, ctx }) {
             </label>
             <label>Counts in<input disabled value=${willCount ? `${periodLabel(willCount)}${willCount !== periodOf(form.receipt_date) ? ' (late entry)' : ''}` : '–'} /></label>
           </div>
+          <label class="check annual-pick"><input type="checkbox" checked=${!!form.annual_only} onChange=${(e) => set({ annual_only: e.target.checked })} />
+            <span><strong>Annual costs only</strong> · not for the VAT return. The CPA counts it in the annual cost calculation only.</span></label>
           ${weakProof(form) && html`<p class="hint">${form.doc_type === 'payment' ? 'A payment receipt shows no VAT. Fill in the VAT if you know it, or choose No VAT.' : 'Fill in the fields by hand and attach a payment receipt or bank screenshot if you have one.'} Your accountant decides whether VAT without a proper receipt can be deducted.</p>`}
 
           <div class="form-section">
@@ -388,6 +396,7 @@ export function ReceiptEditor({ receipt, ctx }) {
 
           <div class="form-section">
             <h3>VAT ${form.vat_country !== HOME_COUNTRY && html`<span class="badge st-review">Foreign: ${countryName(form.vat_country)}</span>`}</h3>
+            ${form.annual_only && html`<p class="hint">Annual costs only: the VAT below is kept for reference and is not used on the VAT return. The full amount counts as cost.</p>`}
             ${form.vat_country !== HOME_COUNTRY && html`<p class="hint">Foreign VAT can’t be deducted on your Dutch VAT return. It’s listed separately in the overview, per country.</p>`}
             <div class="vat-line labels"><span>Rate</span><span>Net</span><span>VAT</span><span></span></div>
             ${form.vat_lines.map((l, i) => html`

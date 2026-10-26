@@ -10,9 +10,10 @@ Live at **https://andregrift-design.github.io/receipts/**
 
 Menu: **Expenses → Income → Overview → Settings**, plus search (⌘K, or 🔍 on the phone). On the phone the menu sits at the bottom.
 
-- **Expenses**: take a photo (camera in the app, several in a row), add photos/PDFs, or enter by hand. Claude reads document type, store, address, country, description, category, date, currency, total and VAT per rate. Foreign currencies get the ECB rate of the receipt date.
-- **Income**: import agency statements (any country or currency). You enter a **booking date** at import (today suggested); it decides the quarter. Every job shows the same fields: fee, VAT, expenses paid back, agency fee (+ VAT, reverse charge), website, transport, tax withheld, other. Done statements can have receipts attached per job. Duplicates are flagged.
-- **Overview** (quarter or year, EUR or USD): 1 Expenses (Netherlands, foreign per country, per category), 2 Income (Dutch agencies, foreign agencies per country, fees and deductions by type), 3 Dutch VAT position, 4 corrections and late entries, 5 details. Expenses count by receipt date, income by booking date. Exports (Excel, PDF, ZIP) follow the same order.
+- **Home**: the quarter new receipts and statements go into, the year so far against the same period last year (income, expenses, result, Dutch VAT), monthly charts and what needs attention.
+- **Expenses**: take a photo (camera in the app, several in a row), add photos/PDFs, or enter by hand. Claude reads document type, store, address, country, description, category, date, currency, total and VAT per rate. Foreign currencies get the ECB rate of the receipt date. Tick **Annual costs only** for receipts the CPA should count as yearly costs but not on the VAT return; they get their own block in the overview and a "VAT return: No" column in Excel.
+- **Income**: import agency statements (any country or currency). You enter an **import date** at import (today suggested); it decides the quarter. Every job shows the same fields: fee, VAT, expenses paid back, agency fee (+ VAT, reverse charge), website, transport, tax withheld, other. Done statements can have receipts attached per job. Duplicates are flagged.
+- **Overview** (quarter or year, EUR or USD): 1 Expenses (Netherlands, foreign per country, per category), 2 Income (Dutch agencies, foreign agencies per country, fees and deductions by type), 3 Dutch VAT position, 4 corrections and late entries, 5 details. Expenses count by receipt date, income by import date. Exports (Excel, PDF, ZIP) follow the same order.
 - **Filing**: *Mark as filed with CPA* locks a quarter in the database. Receipts dated in a filed quarter that arrive later, and corrections, go to the first open quarter with a ↩︎ mark. A correction holds the right values; the overview books the difference with the original.
 - **Accountants**: Settings → Share → their email. They sign up with that email and see everything read-only.
 - Numbers always show as 1,000.00; fields accept 1,000.00, 1.000,00 and 12,50.
@@ -38,9 +39,10 @@ GitHub Pages from `main` of `andregrift-design/receipts`. To ship a change: comm
 | File | Purpose |
 | --- | --- |
 | `src/main.js` | Sign-in, app frame (menu, search, routes), shared data |
+| `src/home.js` | Home: current quarter, year so far vs last year, monthly charts, to-dos |
 | `src/kit.js` | Shared UI: number fields, badges, dialogs, document preview, icons |
 | `src/expenses.js` | Expenses list, camera, receipt screen |
-| `src/income.js` | Income list, agencies and clients, booking date dialog, statement screen |
+| `src/income.js` | Income list, agencies and clients, import date dialog, statement screen |
 | `src/overview.js` | Overview and filing with the CPA |
 | `src/search.js` | Spotlight-style search |
 | `src/settings.js` | Account, sharing, filed quarters |

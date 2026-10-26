@@ -53,7 +53,7 @@ export async function filePeriod(period, note) {
 // A correction is a new record with the right values; the overview books the difference with the original.
 const CORRECTION_FIELDS = {
   receipts: ['user_id', 'doc_type', 'store', 'store_address', 'description', 'category', 'receipt_date', 'currency', 'total',
-    'vat_country', 'vat_lines', 'fx_rate', 'fx_date', 'notes'],
+    'vat_country', 'vat_lines', 'fx_rate', 'fx_date', 'notes', 'annual_only'],
   statements: ['user_id', 'agency', 'agency_country', 'agency_address', 'statement_no', 'statement_date', 'booking_date',
     'currency', 'fx_rate', 'fx_date', 'lines', 'total_paid', 'notes'],
 };
@@ -116,6 +116,7 @@ export async function saveReceipt(r) {
     fx_rate: r.currency === 'EUR' ? 1 : r.fx_rate === '' || r.fx_rate == null ? null : Number(r.fx_rate),
     fx_date: r.currency === 'EUR' ? null : r.fx_date || null,
     notes: r.notes || null,
+    annual_only: !!r.annual_only,
   };
   fields.status = problems(fields).length ? 'review' : 'done';
   const { data, error } = await sb.from('receipts').update(fields).eq('id', r.id).select().single();
@@ -124,9 +125,9 @@ export async function saveReceipt(r) {
 }
 
 // A record without a document yet: everything is filled in by hand.
-export async function createManual(userId) {
+export async function createManual(userId, extra = {}) {
   const { data, error } = await sb.from('receipts')
-    .insert({ user_id: userId, status: 'review', doc_type: 'none', receipt_date: new Date().toISOString().slice(0, 10) })
+    .insert({ ...extra, user_id: userId, status: 'review', doc_type: 'none', receipt_date: new Date().toISOString().slice(0, 10) })
     .select().single();
   if (error) throw error;
   return data;

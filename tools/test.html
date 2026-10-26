@@ -4,7 +4,7 @@
 <script type="module">
 // Logic and export tests with made-up data. Open /tools/test.html on a local server.
 import { problems, summarize, splitGross, quarterRange, quarterLabel, vatLabel, usdConversion, eurConversion, lineTotal, statementProblems,
-  summarizeIncome, mergeCategories, agencyOverview, parseNum, fmtNum, money, periodOf, nextPeriod, bookingPeriod, isLate, forPeriod, duplicateOf } from '../src/vat.js';
+  summarizeIncome, mergeCategories, agencyOverview, parseNum, fmtNum, money, periodOf, nextPeriod, bookingPeriod, isLate, forPeriod, duplicateOf, yearFigures, ANNUAL_LABEL } from '../src/vat.js';
 import { listStatements, eurUsdRates } from '/src/api.js';
 import { downloadExcel, downloadPdf, numbered } from '../src/export.js';
 import { buildPeriod } from '../src/overview.js';
@@ -59,7 +59,7 @@ eq('Q3 unchanged by correction', summarize(forPeriod([...rs, corr], [...rs, corr
 const sts = await listStatements();
 eq('statement line totals', sts.map((x) => lineTotal(x.lines[0])), [4840, 750]);
 eq('statements complete', sts.map((x) => statementProblems(x)), [[], []]);
-eq('booking date required', statementProblems({ ...sts[0], booking_date: null }), ['booking date']);
+eq('import date required', statementProblems({ ...sts[0], booking_date: null }), ['import date']);
 eq('bad total flagged', statementProblems({ ...sts[0], total_paid: 4000 }), ['lines don’t add up to the amount paid']);
 const inc = summarizeIncome(sts);
 eq('income totals', [inc.fee, inc.vat, inc.paid, inc.homeVat, inc.reverseCharge], [5000, 840, 5590, 840, 52.5]);
@@ -92,13 +92,13 @@ await downloadExcel(d3, meta);
 const wb = XLSX.read(await files['VH5 2026-Q3.xlsx'].arrayBuffer(), { cellDates: true });
 eq('excel sheets', wb.SheetNames, ['Summary', 'Expenses', 'Income']);
 const sum = XLSX.utils.sheet_to_json(wb.Sheets.Summary, { header: 1 }).map((r) => r[0]).filter(Boolean);
-const order = ['1. Expenses (by receipt date)', 'Netherlands', 'Foreign', 'Per category', '2. Income (agency statements, by booking date)', 'Dutch agencies', 'Foreign agencies', '3. Dutch VAT position'];
+const order = ['1. Expenses (by receipt date)', 'Netherlands', 'Foreign', 'Per category', '2. Income (agency statements, by import date)', 'Dutch agencies', 'Foreign agencies', '3. Dutch VAT position'];
 eq('excel in overview order', order.map((t) => sum.indexOf(t)).every((v, i, a) => v >= 0 && (i === 0 || v > a[i - 1])), true);
 const sumRows = XLSX.utils.sheet_to_json(wb.Sheets.Summary, { header: 1 });
 eq('excel NL total', sumRows.find((r) => r[0] === 'Total Netherlands'), ['Total Netherlands', 3, 1027.85, 213.45, 1246.3]);
 eq('excel Dutch agencies total', sumRows.find((r) => r[0] === 'Total Dutch agencies'), ['Total Dutch agencies', 1, 4000, 840, 0, 4840]);
 const det = XLSX.utils.sheet_to_json(wb.Sheets.Expenses);
-eq('excel expense row', [det.find((r) => /Shell/.test(r.Store))?.['Gross EUR'], det[0]['Receipt date'] instanceof Date], [1210, true]);
+eq('excel expense row', [det.find((r) => /Shell/.test(r.Store))?.['Gross EUR'], det[0]['Receipt date'] instanceof Date, det.find((r) => /Shell/.test(r.Store))?.['VAT return']], [1210, true, 'Yes']);
 const incRows = XLSX.utils.sheet_to_json(wb.Sheets.Income);
 eq('excel income row', incRows.map((r) => [r.Agency, r['Fee EUR'], r['Paid EUR'], r.Quarter]), [['Example Models B.V.', 4000, 4840, 'Q3 2026']]);
 
@@ -114,6 +114,38 @@ await downloadPdf(d3, meta, (n) => { progress = n; });
 const pdf = files['VH5 2026-Q3.pdf'];
 eq('pdf made with photo pages', [pdf.size > 5000 && (await pdf.text()).startsWith('%PDF'), progress], [true, 5]);
 window.lastPdf = pdf;
+
+// ---------- annual costs only ----------
+{
+  const base = { status: 'done', currency: 'EUR', fx_rate: 1, vat_country: 'NL', receipt_date: '2026-08-01' };
+  const list = [
+    { ...base, id: 'n1', store: 'Normal', category: 'Office', total: 121, vat_lines: [{ rate: 21, net: 100, vat: 21 }] },
+    { ...base, id: 'y1', store: 'Gym', category: 'Other', total: 60.5, annual_only: true, vat_lines: [{ rate: 21, net: 50, vat: 10.5 }] },
+    { ...base, id: 'y2', store: 'Course', category: 'Education', total: 200, annual_only: true, vat_lines: [] },
+  ];
+  const a = summarize(list);
+  eq('annual not in VAT groups', [a.home.count, a.homeVat, a.groups.some((g) => g.key === 'annual')], [1, 21, false]);
+  eq('annual block', [a.annual.count, a.annual.gross, a.total.count, a.total.gross], [2, 260.5, 3, 381.5]);
+  eq('annual counts full amount in categories', a.categories.find((c) => c.category === 'Other').gross, 60.5);
+  eq('annual has no VAT problems', problems(list[2]), []);
+  eq('annual label', vatLabel('annual'), ANNUAL_LABEL);
+}
+
+// ---------- year to date ----------
+{
+  const R = (id, date, total, extra = {}) => ({ id, status: 'done', currency: 'EUR', fx_rate: 1, vat_country: 'NL', receipt_date: date, total, vat_lines: [{ rate: 21, net: round(total / 1.21), vat: round(total - total / 1.21) }], ...extra });
+  const round = (x) => Math.round(x * 100) / 100;
+  const S = (id, date, fee) => ({ id, agency: 'Example Models B.V.', agency_country: 'NL', currency: 'EUR', fx_rate: 1, statement_date: date, booking_date: date,
+    lines: [{ fee, vat: fee * 0.21, deductions: [{ type: 'agency_fee', amount: fee * 0.2, vat: fee * 0.042 }] }] });
+  const rec = [R('r1', '2026-02-10', 121), R('r2', '2026-11-30', 242), R('r3', '2025-03-01', 60.5), R('r4', '2026-03-05', 100, { annual_only: true })];
+  const sts = [S('s1', '2026-03-15', 1000), S('s2', '2025-01-20', 500)];
+  const y = yearFigures(rec, sts, 2026, '10-26');
+  eq('ytd skips later dates', [y.totals.receipts, y.totals.expenses, y.months.expenses[1], y.months.expenses[2]], [2, 221, 121, 100]);
+  eq('ytd income and VAT', [y.totals.income, y.totals.vatOut, y.totals.vatIn, y.totals.vatDue], [1000, 210, 63, 147]);
+  eq('ytd result', [y.totals.cost, y.totals.deductions, y.totals.result], [200, 200, 600]);
+  const ly = yearFigures(rec, sts, 2025, '10-26');
+  eq('last year same period', [ly.totals.income, ly.totals.expenses, ly.months.income[0]], [500, 60.5, 500]);
+}
 
 // ---------- live ECB rates (network) ----------
 const live = await eurUsdRates('2026-09-01', '2026-09-30');

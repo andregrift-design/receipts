@@ -3,7 +3,7 @@
 // 3 Dutch VAT position, 4 corrections and late entries, then the details.
 // Excel: Summary, Expenses and Income sheets. PDF: overview, details, one page per receipt photo. ZIP: Excel + all documents.
 import { vatLabel, countryName, DOC_TYPES, weakProof, fmtDate, money, neg, statementAsReceipt, lineTotal, JOB_KINDS, round2,
-  periodLabel, naturalPeriod, HOME_COUNTRY } from './vat.js';
+  periodLabel, naturalPeriod, HOME_COUNTRY, ANNUAL_LABEL } from './vat.js';
 import { fileBlob } from './api.js';
 
 const XLSX_URL = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs';
@@ -46,6 +46,12 @@ function summaryBlocks(d, cur) {
       ...s.foreign.groups.filter((g) => g.country === c.country).map((g) => vrow(g, `   ${g.label.replace(`${c.name}: `, '')}`))]),
     foot: [['Total foreign', s.foreign.count, s.foreign.net, s.foreign.vat, s.foreign.gross]],
     note: s.foreign.groups.length ? 'Foreign VAT is not deductible on the Dutch return; within the EU it can be reclaimed from that country.' : '' });
+  if (s.annual.count) {
+    blocks.push({ title: ANNUAL_LABEL, head: ['Receipt', 'Receipts', 'Cost', 'VAT', 'Gross'],
+      rows: s.annual.rows.map((row) => { const r = row.receipt; return [`${tag(r)}${r.store || r.description || ''}${r.receipt_date ? ` (${r.receipt_date})` : ''}${r.category ? ` · ${r.category}` : ''}`, r._reversal ? null : 1, row.net, null, row.gross]; }),
+      foot: [['Total annual costs only', s.annual.count, s.annual.gross, null, s.annual.gross]],
+      note: 'Marked as annual costs only: not on the VAT return, no VAT deducted. The full amount counts as cost in the categories.' });
+  }
   blocks.push({ title: 'Per category', head: ['Category', 'Receipts', 'Net', 'VAT', 'Gross'],
     rows: cats.map((c) => [c.category + (c.fromStatements ? ` (incl. ${money(c.fromStatements, cur)} deducted by agencies)` : ''), c.count, c.net, c.vat, c.gross]),
     foot: [['Total expenses', s.total.count, round2(cats.reduce((t, c) => t + c.net, 0)), round2(cats.reduce((t, c) => t + c.vat, 0)), round2(cats.reduce((t, c) => t + c.gross, 0))]] });
@@ -54,7 +60,7 @@ function summaryBlocks(d, cur) {
   const foreign = inc.agencies.filter((a) => (a.country || HOME_COUNTRY) !== HOME_COUNTRY);
   const arow = (a, label) => [label || a.agency, a.count, a.fee, a.vat, neg(a.deductions), a.paid];
   const ahead = ['Agency', 'Statements', 'Fees', 'VAT', 'Deductions', 'Paid'];
-  blocks.push({ section: '2. Income (agency statements, by booking date)' });
+  blocks.push({ section: '2. Income (agency statements, by import date)' });
   const td = sumAgencies(dutch), tf = sumAgencies(foreign);
   blocks.push({ title: 'Dutch agencies', head: ahead, rows: dutch.map((a) => arow(a)), foot: [arow(td, 'Total Dutch agencies')] });
   blocks.push({ title: 'Foreign agencies', head: ahead,
@@ -117,7 +123,7 @@ async function buildExcel(d, meta) {
     aoa.push([]);
   }
   aoa.push([conversionNote(cur)]);
-  aoa.push(['Expenses count by receipt date, income by the booking date entered for each statement.']);
+  aoa.push(['Expenses count by receipt date, income by the import date entered for each statement.']);
   const sum = XLSX.utils.aoa_to_sheet(aoa);
   for (const r of money2) for (const c of [2, 3, 4, 5]) {
     const cell = sum[XLSX.utils.encode_cell({ r, c })];
@@ -128,20 +134,20 @@ async function buildExcel(d, meta) {
   // Expenses detail
   const dt = (iso) => (iso ? new Date(`${iso}T12:00:00`) : null);
   const nums = new Map(numbered(d.rec.filter((r) => !r._reversal)).map((n) => [n.r.id, n]));
-  const header = ['No.', 'Receipt date', 'Quarter', 'Store', 'Address', 'Country', 'Description', 'Category', 'Document', 'VAT category', 'VAT rate',
+  const header = ['No.', 'Receipt date', 'Quarter', 'Store', 'Address', 'Country', 'Description', 'Category', 'Document', 'VAT category', 'VAT return', 'VAT rate',
     `Net ${cur}`, `VAT ${cur}`, `Gross ${cur}`, 'Receipt currency', 'Gross in receipt currency', `Rate to ${cur}`, 'Rate date', 'Status', 'Correction / late', 'Notes', 'Photo file'];
   const rows = [...d.s.rows].sort((a, b) => (nums.get(a.receipt.id)?.no || 999) - (nums.get(b.receipt.id)?.no || 999)).map((row) => {
     const r = row.receipt;
     const n = nums.get(r.id);
     const rate = r.currency === cur ? null : conv.rate(r);
     return [n?.no ?? null, dt(r.receipt_date), periodLabel(r.period), tag(r) + (r.store || ''), r.store_address, countryName(r.vat_country || 'NL'), r.description, r.category,
-      DOC_TYPES[r.doc_type || 'receipt'], vatLabel(row.key), row.rate === null || row.rate === undefined ? null : row.rate / 100,
+      DOC_TYPES[r.doc_type || 'receipt'], vatLabel(row.key), r.annual_only ? 'No, annual costs only' : 'Yes', row.rate === null || row.rate === undefined ? null : row.rate / 100,
       row.net, row.vat, row.gross, r.currency, r.currency === cur ? null : row.gross_orig, rate ? rate.rate : null, dt(rate?.date), status(r),
       r.corrects || r._reversal ? 'Correction' : naturalPeriod(r) && naturalPeriod(r) !== r.period ? `Late: belongs to ${periodLabel(naturalPeriod(r))}` : '', r.notes, n?.file || ''];
   });
   const det = XLSX.utils.aoa_to_sheet([header, ...rows], { cellDates: true });
-  fmtCols(XLSX, det, rows.length, { date: [1, 17], pct: [10], money: [11, 12, 13, 15], rate: [16] });
-  det['!cols'] = [6, 12, 9, 26, 30, 14, 30, 22, 20, 26, 8, 12, 12, 12, 9, 12, 11, 11, 14, 22, 24, 40].map((wch) => ({ wch }));
+  fmtCols(XLSX, det, rows.length, { date: [1, 18], pct: [11], money: [12, 13, 14, 16], rate: [17] });
+  det['!cols'] = [6, 12, 9, 26, 30, 14, 30, 22, 20, 26, 20, 8, 12, 12, 12, 9, 12, 11, 11, 14, 22, 24, 40].map((wch) => ({ wch }));
   det['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length, c: header.length - 1 } }) };
 
   const wb = XLSX.utils.book_new();
@@ -166,7 +172,7 @@ const dedSum = (l, type) => (l.deductions || []).filter((x) => x.type === type).
 
 function incomeSheet(XLSX, d, conv, cur) {
   const dt = (iso) => (iso ? new Date(`${iso}T12:00:00`) : null);
-  const header = ['Booking date', 'Quarter', 'Payment date', 'Statement no.', 'Agency', 'Agency country', 'Client', 'Job', 'Job date', 'Type', 'Invoice no.',
+  const header = ['Import date', 'Quarter', 'Payment date', 'Statement no.', 'Agency', 'Agency country', 'Client', 'Job', 'Job date', 'Type', 'Invoice no.',
     `Fee ${cur}`, 'VAT %', `VAT ${cur}`, `Expenses ${cur}`, `Agency fee ${cur}`, `Website ${cur}`, `Transport ${cur}`, `Tax withheld ${cur}`,
     `Other deductions ${cur}`, `VAT on deductions ${cur}`, 'Reverse charge', `Paid ${cur}`, 'Statement currency', 'Paid in statement currency',
     `Rate to ${cur}`, 'Rate date', 'Status', 'Correction / late', 'Receipts attached'];
@@ -250,7 +256,7 @@ export async function downloadPdf(d, meta, onProgress) {
     if (b.note) { doc.setFontSize(8); doc.setTextColor(110); const t = doc.splitTextToSize(b.note, W - 28); ensure(t.length * 4); doc.text(t, 14, y); y += t.length * 3.6 + 3; doc.setTextColor(0); }
   }
   doc.setFontSize(8); doc.setTextColor(110);
-  const note = doc.splitTextToSize(`${conversionNote(cur)} Expenses count by receipt date, income by the booking date entered for each statement.`, W - 28);
+  const note = doc.splitTextToSize(`${conversionNote(cur)} Expenses count by receipt date, income by the import date entered for each statement.`, W - 28);
   ensure(note.length * 4); doc.text(note, 14, y); y += note.length * 3.6 + 6; doc.setTextColor(0);
 
   // Details
@@ -272,7 +278,7 @@ export async function downloadPdf(d, meta, onProgress) {
     ensure(20);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.text('Details: jobs (agency statements)', 14, y + 4); doc.setFont('helvetica', 'normal'); y += 8;
     autoTable(doc, { ...base, startY: y, styles: { ...base.styles, fontSize: 7.5 },
-      head: [['Booked', 'Agency', 'Client / job', 'Job date', 'Type', 'Fee', 'VAT', 'Deductions', 'Paid']],
+      head: [['Imported', 'Agency', 'Client / job', 'Job date', 'Type', 'Fee', 'VAT', 'Deductions', 'Paid']],
       body: [...d.inc.lines].sort((a, b) => (a.statement.booking_date || '').localeCompare(b.statement.booking_date || '')).map(({ statement: st, line: l, fee, vat, deductions, paid }) => {
         const rate = st.currency === cur ? null : conv.rate(statementAsReceipt(st));
         const fx = rate ? `\n${money(lineTotal(l), st.currency)} at ${rate.rate.toFixed(4)}${rate.date ? ` (${rate.date})` : ''}` : '';

@@ -24,6 +24,7 @@ create table if not exists public.receipts (
   fx_rate      numeric(14,6),              -- EUR for 1 unit of currency (ECB, receipt date)
   fx_date      date,                       -- date of that rate: the receipt date, or the last business day before it
   notes        text,
+  annual_only  boolean     not null default false,  -- annual cost only, not on the VAT return
   issues       jsonb       not null default '[]',  -- what the reader was unsure about
   extraction   jsonb,                      -- raw result from the reader
   error        text,
@@ -167,6 +168,7 @@ exception when duplicate_object then null; end $$;
 alter table public.statements add column if not exists booking_date date;   -- entered by the user; decides the quarter
 alter table public.receipts   add column if not exists period text;         -- 'YYYY-Qn', set by the trigger below
 alter table public.statements add column if not exists period text;
+alter table public.receipts   add column if not exists annual_only boolean not null default false;
 alter table public.receipts   add column if not exists corrects uuid references public.receipts on delete set null;
 alter table public.statements add column if not exists corrects uuid references public.statements on delete set null;
 

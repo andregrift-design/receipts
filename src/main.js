@@ -5,11 +5,12 @@ import * as api from './api.js';
 import { go, useRoute, Icon } from './kit.js';
 import { ExpensesPage, ReceiptEditor } from './expenses.js';
 import { IncomePage, StatementEditor, BookingDialog } from './income.js';
+import { HomePage } from './home.js';
 import { OverviewPage } from './overview.js';
 import { SettingsPage } from './settings.js';
 import { Spotlight } from './search.js';
 
-const VERSION = '2.1';
+const VERSION = '2.2';
 
 // ---------- sign in ----------
 
@@ -134,7 +135,7 @@ function Shell({ user }) {
 
   const reloadShares = () => api.myShares().then(setShares).catch((e) => console.warn(e));
   useEffect(() => { reloadShares(); }, []);
-  const setOwner = (id) => { localStorage.setItem('owner', id); setReceipts(null); setStatements(null); setOwnerId(id); go('expenses'); };
+  const setOwner = (id) => { localStorage.setItem('owner', id); setReceipts(null); setStatements(null); setOwnerId(id); go('home'); };
   // An accountant without data of their own lands on the first shared account.
   useEffect(() => {
     if (!localStorage.getItem('owner') && sharedWithMe.length && receipts && !receipts.length && statements && !statements.length && mine) setOwner(sharedWithMe[0].owner_id);
@@ -183,8 +184,8 @@ function Shell({ user }) {
     await refreshQueue();
     reload();
   };
-  const addManual = async () => {
-    try { const r = await api.createManual(user.id); setReceipts((list) => (list && !list.some((x) => x.id === r.id) ? [r, ...list] : list)); go(`r/${r.id}`); }
+  const addManual = async (extra = {}) => {
+    try { const r = await api.createManual(user.id, extra); setReceipts((list) => (list && !list.some((x) => x.id === r.id) ? [r, ...list] : list)); go(`r/${r.id}`); }
     catch (e) { alert(e.message); }
   };
   const removeQueued = async (item) => {
@@ -193,8 +194,8 @@ function Shell({ user }) {
     refreshQueue();
   };
 
-  const [view = 'expenses', arg] = route;
-  const page = { '': 'expenses', r: 'expenses', expenses: 'expenses', s: 'income', income: 'income', quarter: 'overview', overview: 'overview', settings: 'settings' }[view] || 'expenses';
+  const [view = 'home', arg] = route;
+  const page = { '': 'home', home: 'home', r: 'expenses', expenses: 'expenses', s: 'income', income: 'income', quarter: 'overview', overview: 'overview', settings: 'settings' }[view] || 'home';
   const filed = useMemo(() => new Set(periods.map((p) => p.period)), [periods]);
   const ctx = {
     user, mine, ownerLabel, receipts: receipts || [], statements: statements || [], periods, filed, viewers, sharedWithMe,
@@ -222,6 +223,7 @@ function Shell({ user }) {
     body = st ? html`<${StatementEditor} statement=${st} ctx=${ctx} key=${st.id} />` : html`<p class="boot">Statement not found. <a href="#/income">Back</a></p>`;
   } else if (page === 'income') body = html`<${IncomePage} ctx=${ctx} />`;
   else if (page === 'overview') body = html`<${OverviewPage} ctx=${ctx} arg=${arg} />`;
+  else if (page === 'home') body = html`<${HomePage} ctx=${ctx} />`;
   else if (page === 'settings') body = html`<${SettingsPage} ctx=${ctx} version=${VERSION} />`;
   else body = html`<${ExpensesPage} ctx=${ctx} />`;
 
@@ -234,8 +236,9 @@ function Shell({ user }) {
       onDragLeave=${(e) => { if (e.target === e.currentTarget) setDragging(false); }}
       onDrop=${mine ? onDrop : undefined}>
       <header class="topbar">
-        <a class="brand" href="#/expenses"><img src="icons/icon-192.png" alt="" />VH5</a>
+        <a class="brand" href="#/home"><img src="icons/icon-192.png" alt="" />VH5</a>
         <nav class="tabs">
+          ${tab('home', 'Home', Icon.home)}
           ${tab('expenses', 'Expenses', Icon.expenses, openR)}
           ${tab('income', 'Income', Icon.income, openS)}
           ${tab('overview', 'Overview', Icon.overview)}

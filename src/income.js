@@ -1,4 +1,4 @@
-// Income: import agency statements (with a booking date), agencies and clients, and the statement screen.
+// Income: import agency statements (with an import date), agencies and clients, and the statement screen.
 import { html, useState, useEffect, useRef, useMemo } from './ui.js';
 import * as api from './api.js';
 import {
@@ -10,7 +10,7 @@ import { QueuedRow } from './expenses.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-// ---------- booking date at import ----------
+// ---------- import date (asked at import) ----------
 
 // Asked right after choosing statements: the date that decides which quarter the income counts in.
 export function BookingDialog({ files, filed, onImport, onCancel }) {
@@ -19,9 +19,9 @@ export function BookingDialog({ files, filed, onImport, onCancel }) {
   return html`
     <${Modal} onClose=${onCancel}>
       <p class="kicker">Import ${files.length} statement${files.length > 1 ? 's' : ''}</p>
-      <h2>Booking date</h2>
+      <h2>Import date</h2>
       <p class="hint">This date decides which quarter the income counts in. Today is suggested; you can change it later per statement.</p>
-      <label>Booking date<input type="date" value=${date} onInput=${(e) => setDate(e.target.value)} /></label>
+      <label>Import date<input type="date" value=${date} onInput=${(e) => setDate(e.target.value)} /></label>
       <p class="hint">${p ? html`Counts in <strong>${periodLabel(p)}</strong>${p !== periodOf(date) ? ` (${periodLabel(periodOf(date))} is already filed with the CPA)` : ''}.` : 'Choose a date.'}</p>
       <div class="actions">
         <button class="primary" disabled=${!date} onClick=${() => onImport(date)}>Import</button>
@@ -49,7 +49,7 @@ export function IncomePage({ ctx }) {
   }
   const order = (k) => (k === 'new' ? '9999' : k === 'nodate' ? '9998' : k);
   const keys = [...groups.keys()].sort((a, b) => order(b).localeCompare(order(a)));
-  const title = (k) => (k === 'new' ? 'Just added' : k === 'nodate' ? 'No booking date yet' : periodLabel(k));
+  const title = (k) => (k === 'new' ? 'Just added' : k === 'nodate' ? 'No import date yet' : periodLabel(k));
   const eur = (st) => (isNum(st.total_paid) && fxFor(statementAsReceipt(st)) != null ? st.total_paid * fxFor(statementAsReceipt(st)) : 0);
 
   return html`
@@ -61,14 +61,16 @@ export function IncomePage({ ctx }) {
         <button class="primary big" onClick=${() => input.current.click()}>Import agency statement</button>
         <input ref=${input} type="file" accept="application/pdf,image/*" multiple hidden onChange=${(e) => { ctx.importStatements([...e.target.files]); e.target.value = ''; }} />
       </div>
-      <p class="hint">PDF or photo of a payment statement, from any country or currency. Claude reads the agency, jobs, fees, VAT and deductions; you set the booking date and check the result.</p>`}
+      <p class="hint">PDF or photo of a payment statement, from any country or currency. Claude reads the agency, jobs, fees, VAT and deductions; you set the import date and check the result.</p>`}
 
     ${agencies.length > 0 && html`
-      <div class="toolbar">
-        <select value=${agency ? agency.key : ''} onChange=${(e) => choose(e.target.value)} aria-label="Agency">
-          <option value="">All agencies (${agencies.length})</option>
-          ${agencies.map((a) => html`<option value=${a.key}>${a.name} · ${countryName(a.country)}</option>`)}
-        </select>
+      <div class="section-title"><h2>Agencies</h2><small>Pick one to see its clients and statements</small></div>
+      <div class="chips" role="radiogroup" aria-label="Agency">
+        <button role="radio" aria-checked=${!agency} class=${!agency ? 'chip on' : 'chip'} onClick=${() => choose('')}>
+          <strong>All agencies</strong><small>${agencies.length} agencies · ${statements.length} statement${statements.length === 1 ? '' : 's'}</small></button>
+        ${agencies.map((a) => html`
+          <button role="radio" aria-checked=${agency === a} class=${agency === a ? 'chip on' : 'chip'} onClick=${() => choose(a.key)}>
+            <strong>${a.name}</strong><small>${countryName(a.country)} · ${a.statements} statement${a.statements === 1 ? '' : 's'}</small></button>`)}
       </div>
       <${ClientsCard} agencies=${agency ? [agency] : agencies} single=${!!agency} />`}
 
@@ -98,7 +100,7 @@ function StatementRow({ st, ctx }) {
       <span class="badges">
         <${PeriodBadges} rec=${st} filed=${ctx.filed} all=${ctx.statements} />
         ${dup && html`<span class="badge st-bad">Possible duplicate</span>`}
-        ${!st.booking_date && st.status !== 'processing' && html`<span class="badge st-review">No booking date</span>`}
+        ${!st.booking_date && st.status !== 'processing' && html`<span class="badge st-review">No import date</span>`}
         ${st.status !== 'done' && html`<${Badge} status=${st.status} />`}
       </span>
       <span class="amount">${money(st.total_paid, st.currency || 'EUR')}
@@ -202,7 +204,7 @@ export function StatementEditor({ statement, ctx }) {
   const sum = round2(value.lines.reduce((t, l) => t + lineTotal(l), 0));
   const fx = fxFor(statementAsReceipt(value));
   const foreign = form.agency_country !== HOME_COUNTRY;
-  // Its own quarter while the booking date is unchanged; otherwise where it would go now.
+  // Its own quarter while the import date is unchanged; otherwise where it would go now.
   const willCount = form.booking_date === statement.booking_date && statement.period ? statement.period : bookingPeriod(form.booking_date, ctx.filed);
 
   const save = async () => {
@@ -275,8 +277,8 @@ export function StatementEditor({ statement, ctx }) {
           </div>
           <div class="grid g3">
             <label>Payment date<input type="date" value=${form.statement_date || ''} onInput=${(e) => set({ statement_date: e.target.value })} /></label>
-            <label>Booking date<input type="date" value=${form.booking_date || ''} onInput=${(e) => set({ booking_date: e.target.value })} /></label>
-            <label>Counts in<input disabled value=${willCount ? `${periodLabel(willCount)}${willCount !== periodOf(form.booking_date) ? ' (late)' : ''}` : 'Set a booking date'} /></label>
+            <label>Import date<input type="date" value=${form.booking_date || ''} onInput=${(e) => set({ booking_date: e.target.value })} /></label>
+            <label>Counts in<input disabled value=${willCount ? `${periodLabel(willCount)}${willCount !== periodOf(form.booking_date) ? ' (late)' : ''}` : 'Set an import date'} /></label>
           </div>
           <div class="grid g4">
             <label>Currency

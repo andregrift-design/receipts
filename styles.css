@@ -310,3 +310,52 @@ td small { color: var(--muted); }
 .auth-links { display: flex; justify-content: space-between; margin-top: 16px; font-size: 14px; }
 .settings { max-width: 680px; margin: 0 auto; }
 .row-form { display: flex; gap: 8px; }
+
+/* ---------- agency chips ---------- */
+
+.chips { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0 22px; }
+.chip { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 10px 16px; min-width: 150px;
+  background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); cursor: pointer; }
+.chip strong { font-weight: 600; }
+.chip small { color: var(--muted); font-size: 12px; }
+.chip:hover { border-color: var(--muted); }
+.chip.on { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+.chip.on small { color: var(--bg); opacity: .75; }
+@media (max-width: 700px) { .chips { flex-wrap: nowrap; overflow-x: auto; margin-inline: -14px; padding: 2px 14px 6px; } .chip { flex: none; } }
+
+/* ---------- home ---------- */
+
+:root { --bar-now: #7a4f2e; --bar-last: #bea68a; }
+@media (prefers-color-scheme: dark) { :root { --bar-now: #d2b08c; --bar-last: #6b5642; } }
+.now-card { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; justify-content: space-between; }
+.now-card .now-period { font-family: var(--display); font-size: 34px; font-weight: 700; margin: 0 0 6px; }
+.now-card .hint { margin: 4px 0 0; }
+.now-card .actions { margin: 0; }
+.tiles.four { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 900px) { .tiles.four { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 700px) { .tiles.four { grid-template-columns: repeat(2, 1fr); gap: 10px; } .tiles.four .tile { padding: 12px; } .tiles.four .big-num { font-size: 21px; } }
+.tile small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+.tile .delta.up-good { color: var(--good); }
+.tile .delta.up-bad { color: var(--bad); }
+.chart { position: relative; }
+.chart-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.chart-head h3 { margin: 0; }
+.legend { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-left: 8px; }
+.legend .sw.now { background: var(--bar-now); }
+.legend .sw.last { background: var(--bar-last); }
+.chart svg { display: block; width: 100%; height: auto; margin-top: 8px; }
+.chart .grid { stroke: var(--line); stroke-width: 1; }
+.chart .axis { fill: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.chart .b-now { fill: var(--bar-now); }
+.chart .b-last { fill: var(--bar-last); }
+.chart .hit { fill: transparent; }
+.chart .month.on .hit { fill: var(--soft); }
+.chart .tip { font-size: 13px; color: var(--ink); margin-top: 4px; font-variant-numeric: tabular-nums; }
+.table-view { margin-top: 8px; font-size: 13px; }
+.table-view summary { color: var(--muted); cursor: pointer; }
+label.check.annual-pick { align-items: flex-start; margin: 12px 2px 18px; color: var(--muted); }
+label.check.annual-pick input { margin-top: 3px; }
+label.check.annual-pick strong { color: var(--ink); }
+.badge.st-annual { background: var(--info-soft); color: var(--info); }
+.section-title h2 { white-space: nowrap; }

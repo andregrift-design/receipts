@@ -81,7 +81,10 @@ function vatKey(receipt, line) {
   return `${country}:${Number(line.rate)}`;
 }
 
+export const ANNUAL_LABEL = 'Annual costs only (not on the VAT return)';
+
 export function vatLabel(key) {
+  if (key === 'annual') return ANNUAL_LABEL;
   const [country, rate] = key.split(':');
   if (country === HOME_COUNTRY) {
     if (rate === 'none') return 'No VAT / exempt';
@@ -124,6 +127,7 @@ export function problems(r) {
   if (!isNum(r.total)) out.push('amount');
   if (!r.currency) out.push('currency');
   if (r.currency && r.currency !== 'EUR' && !isNum(r.fx_rate)) out.push('exchange rate');
+  if (r.annual_only) return out; // not on the VAT return: VAT lines are not needed
   const lines = r.vat_lines || [];
   if (!lines.length) out.push('VAT');
   else if (lines.some((l) => !isNum(l.net) || (l.rate !== null && !isNum(l.vat)))) out.push('VAT amounts');
@@ -168,6 +172,11 @@ function rowsFor(receipts, factor = fxFor) {
   for (const r of receipts) {
     const fx = factor(r);
     const eur = (v) => (isNum(v) && fx != null ? round2(Number(v) * fx) : null);
+    // Annual costs only: one row, the whole amount is the cost, no VAT.
+    if (r.annual_only) {
+      rows.push({ receipt: r, key: 'annual', rate: undefined, net: eur(r.total), vat: 0, gross: eur(r.total), net_orig: r.total, vat_orig: 0, gross_orig: r.total });
+      continue;
+    }
     const lines = r.vat_lines?.length ? r.vat_lines : [{ rate: undefined, net: null, vat: null, gross: r.total }];
     for (const l of lines) {
       const key = vatKey(r, l);
@@ -198,8 +207,9 @@ export function summarize(receipts, factor = fxFor) {
     g.gross += row.gross || 0;
     g.rows.push(row);
   }
-  const list = [...groups.values()].sort((a, b) => compareKeys(a.key, b.key))
-    .map((g) => ({ ...g, count: g.receipts.size, net: round2(g.net), vat: round2(g.vat), gross: round2(g.gross) }));
+  const all = [...groups.values()].map((g) => ({ ...g, count: g.receipts.size, net: round2(g.net), vat: round2(g.vat), gross: round2(g.gross) }));
+  const annualGroup = all.find((g) => g.key === 'annual');
+  const list = all.filter((g) => g.key !== 'annual').sort((a, b) => compareKeys(a.key, b.key));
   const home = list.filter((g) => isHome(g.key));
   const foreign = list.filter((g) => !isHome(g.key));
   const countries = [...new Set(foreign.map((g) => g.country))]
@@ -209,7 +219,9 @@ export function summarize(receipts, factor = fxFor) {
     home: { groups: home, ...sumOf(home) },
     foreign: { groups: foreign, countries, ...sumOf(foreign) },
     rows,
-    total: sumOf(list),
+    // Not on the VAT return; counted as costs (whole amount) in the categories and the total.
+    annual: annualGroup ? { count: annualGroup.count, gross: annualGroup.gross, rows: annualGroup.rows } : { count: 0, gross: 0, rows: [] },
+    total: sumOf(all),
     homeVat: round2(home.reduce((s, g) => s + g.vat, 0)),
     // Dutch VAT that rests on a payment receipt or no document at all.
     weakVat: round2(home.flatMap((g) => g.rows).filter((row) => weakProof(row.receipt)).reduce((s, row) => s + (row.vat || 0), 0)),
@@ -270,7 +282,7 @@ export function statementProblems(st) {
   const out = [];
   if (!st.agency) out.push('agency');
   if (!st.statement_date) out.push('statement date');
-  if (!st.booking_date) out.push('booking date');
+  if (!st.booking_date) out.push('import date');
   if (!st.currency) out.push('currency');
   if (st.currency && st.currency !== 'EUR' && !isNum(st.fx_rate)) out.push('exchange rate');
   const lines = st.lines || [];
@@ -384,9 +396,9 @@ export function agencyOverview(statements) {
 export const periodOf = (iso) => (iso ? `${iso.slice(0, 4)}-Q${Math.floor((Number(iso.slice(5, 7)) - 1) / 3) + 1}` : null);
 export const periodLabel = (p) => (p ? `${p.slice(5)} ${p.slice(0, 4)}` : 'No quarter');
 export const nextPeriod = (p) => (p.endsWith('4') ? `${Number(p.slice(0, 4)) + 1}-Q1` : `${p.slice(0, 6)}${Number(p.slice(6)) + 1}`);
-// The quarter a record belongs to by its own date: receipt date for expenses, booking date for statements.
+// The quarter a record belongs to by its own date: receipt date for expenses, import date for statements.
 export const naturalPeriod = (rec) => periodOf(rec.receipt_date !== undefined ? rec.receipt_date : rec.booking_date);
-// Booked in a later quarter because its own quarter was already filed.
+// Imported in a later quarter because its own quarter was already filed.
 export const isLate = (rec) => !!rec.period && !!naturalPeriod(rec) && naturalPeriod(rec) !== rec.period;
 // First open quarter for a date, given the filed quarters (same rule as the database).
 export function bookingPeriod(iso, filed) {
@@ -424,4 +436,53 @@ export function duplicateOf(st, statements) {
   if (!st.agency || st.corrects) return null;
   const k = key(st);
   return statements.find((x) => x.id !== st.id && !x.corrects && x.agency && key(x) === k && x.created_at < st.created_at) || null;
+}
+
+// ---------- year to date (home screen) ----------
+
+// Figures for one year in EUR, per month and in total: expenses by receipt date, income by import date.
+// until = 'MM-DD' to stop at the same day of the year (for a fair comparison with last year).
+// A record replaced by a correction is left out; the correction counts instead.
+export function yearFigures(receipts, statements, year, until = null) {
+  const replaced = new Set([...receipts, ...statements].map((x) => x.corrects).filter(Boolean));
+  const inRange = (iso) => !!iso && iso.startsWith(`${year}-`) && (!until || iso.slice(5) <= until);
+  const month = (iso) => Number(iso.slice(5, 7)) - 1;
+  const z = () => Array(12).fill(0);
+  const m = { expenses: z(), income: z() };
+  const t = { expenses: 0, cost: 0, income: 0, paid: 0, deductions: 0, vatIn: 0, vatOut: 0, receipts: 0, statements: 0 };
+  for (const r of receipts) {
+    if (replaced.has(r.id) || !inRange(r.receipt_date) || !isNum(r.total)) continue;
+    const f = fxFor(r);
+    if (f == null) continue;
+    const gross = Number(r.total) * f;
+    const home = (r.vat_country || HOME_COUNTRY) === HOME_COUNTRY && !r.annual_only;
+    const vat = home ? (r.vat_lines || []).reduce((s, l) => s + n(l.vat), 0) * f : 0;
+    m.expenses[month(r.receipt_date)] += gross;
+    t.expenses += gross;
+    t.cost += gross - vat; // Dutch VAT comes back; foreign VAT and annual-only receipts cost the full amount
+    t.vatIn += vat;
+    t.receipts++;
+  }
+  for (const st of statements) {
+    if (replaced.has(st.id) || !inRange(st.booking_date)) continue;
+    const f = fxFor(statementAsReceipt(st));
+    if (f == null) continue;
+    const home = (st.agency_country || HOME_COUNTRY) === HOME_COUNTRY;
+    for (const l of st.lines || []) {
+      m.income[month(st.booking_date)] += n(l.fee) * f;
+      t.income += n(l.fee) * f;
+      t.paid += lineTotal(l) * f;
+      if (home) t.vatOut += n(l.vat) * f;
+      for (const d of l.deductions || []) {
+        if (d.type !== 'tax_withheld') t.deductions += n(d.amount) * f;
+        if (home) t.vatIn += n(d.vat) * f;
+      }
+    }
+    t.statements++;
+  }
+  const r2 = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, Array.isArray(v) ? v.map(round2) : round2(v)]));
+  const totals = r2(t);
+  totals.result = round2(t.income - t.deductions - t.cost); // indicative, before income tax
+  totals.vatDue = round2(t.vatOut - t.vatIn);
+  return { months: r2(m), totals };
 }

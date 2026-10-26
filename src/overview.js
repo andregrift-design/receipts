@@ -5,7 +5,7 @@ import * as api from './api.js';
 import {
   money, fmtDate, quarterOf, quarterLabel, summarize, summarizeIncome, mergeCategories, countryName, DOC_TYPES, weakProof,
   usdConversion, eurConversion, round2, neg, periodLabel, forPeriod, isLate, naturalPeriod, JOB_KINDS, HOME_COUNTRY,
-  statementAsReceipt, lineTotal, vatLabel,
+  statementAsReceipt, lineTotal, vatLabel, ANNUAL_LABEL,
 } from './vat.js';
 import { go, Cols, Badge, Modal } from './kit.js';
 import { downloadExcel, downloadPdf, downloadZip, numbered } from './export.js';
@@ -133,7 +133,7 @@ export function OverviewPage({ ctx, arg }) {
       <p class="hint">${cur === 'USD'
         ? 'All amounts in USD, converted on each date: receipts at the receipt date, statements at the payment date (receipt currency to EUR at the ECB rate, then EUR to USD at the ECB rate of that day). Amounts already in USD are not converted.'
         : 'All amounts in EUR; foreign currencies at the ECB rate of the receipt date (statements: the payment date).'}
-        Expenses count by receipt date, income by the booking date you entered.</p>
+        Expenses count by receipt date, income by the import date you entered.</p>
 
       <div class="actions">
         <button class="primary" disabled=${!ready} onClick=${() => run('Excel…', () => downloadExcel(d, meta))}>Download Excel${cur === 'USD' ? ' (USD)' : ''}</button>
@@ -193,6 +193,19 @@ function ExpensesSection({ d, m }) {
           <p class="hint">Foreign VAT (${m(s.foreignVat)}) can’t be deducted on the Dutch return; within the EU it can be reclaimed from that country.</p>`
           : html`<p class="hint">No foreign receipts.</p>`}
       </div>
+      ${s.annual.count > 0 && html`
+      <div class="card">
+        <h3>${ANNUAL_LABEL}</h3>
+        <table><${Cols} amounts=${3} />
+          <thead><tr><th>Receipt</th><th class="n">Receipts</th><th class="n">Cost</th><th class="n">VAT</th><th class="n">Gross</th></tr></thead>
+          <tbody>${s.annual.rows.map((row) => { const r = row.receipt; return html`
+            <tr><td><a href=${`#/r/${r._correctionOf ? r._correctionOf.id : r.id}`}>${r._reversal ? '↩︎ reversal: ' : r.corrects ? '↩︎ ' : ''}${r.store || r.description || '–'}</a>
+              <small> · ${[r.receipt_date && fmtDate(r.receipt_date), r.category, r.vat_country && r.vat_country !== HOME_COUNTRY && countryName(r.vat_country)].filter(Boolean).join(' · ')}</small></td>
+              <td class="n">${r._reversal ? '' : 1}</td><td class="n">${m(row.net)}</td><td class="n">–</td><td class="n">${m(row.gross)}</td></tr>`; })}</tbody>
+          <tfoot><tr><td>Total annual costs only</td><td class="n">${s.annual.count}</td><td class="n">${m(s.annual.gross)}</td><td class="n">–</td><td class="n">${m(s.annual.gross)}</td></tr></tfoot>
+        </table>
+        <p class="hint">Marked by you as annual costs only: not on the VAT return, no VAT deducted. The full amount counts as cost in the categories below and in the annual figures.</p>
+      </div>`}
       <div class="card">
         <h3>Per category</h3>
         <table><${Cols} amounts=${3} />
@@ -217,7 +230,7 @@ function IncomeSection({ d, m }) {
   const row = (a, cls = '') => html`<tr class=${cls}><td>${a.agency || a.label}</td><td class="n">${a.count}</td><td class="n">${m(a.fee)}</td><td class="n">${m(a.vat)}</td><td class="n">${m(neg(a.deductions))}</td><td class="n">${m(a.paid)}</td></tr>`;
   const foot = (label, t) => html`<tfoot><tr><td>${label}</td><td class="n">${t.count}</td><td class="n">${m(t.fee)}</td><td class="n">${m(t.vat)}</td><td class="n">${m(neg(t.deductions))}</td><td class="n">${m(t.paid)}</td></tr></tfoot>`;
   return html`
-    <${Section} title="2. Income" note="agency statements, by booking date">
+    <${Section} title="2. Income" note="agency statements, by import date">
       <div class="card">
         <h3>Dutch agencies</h3>
         ${dutch.length ? html`<table><${Cols} amounts=${4} />${head}<tbody>${dutch.map((a) => row(a))}</tbody>${foot('Total Dutch agencies', sumAgencies(dutch))}</table>`
