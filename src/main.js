@@ -10,7 +10,7 @@ import { OverviewPage } from './overview.js';
 import { SettingsPage } from './settings.js';
 import { Spotlight } from './search.js';
 
-const VERSION = '2.2';
+const VERSION = '2.2.1';
 
 // ---------- sign in ----------
 

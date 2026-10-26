@@ -65,13 +65,12 @@ export function IncomePage({ ctx }) {
 
     ${agencies.length > 0 && html`
       <div class="section-title"><h2>Agencies</h2><small>Pick one to see its clients and statements</small></div>
-      <div class="chips" role="radiogroup" aria-label="Agency">
-        <button role="radio" aria-checked=${!agency} class=${!agency ? 'chip on' : 'chip'} onClick=${() => choose('')}>
-          <strong>All agencies</strong><small>${agencies.length} agencies · ${statements.length} statement${statements.length === 1 ? '' : 's'}</small></button>
-        ${agencies.map((a) => html`
-          <button role="radio" aria-checked=${agency === a} class=${agency === a ? 'chip on' : 'chip'} onClick=${() => choose(a.key)}>
-            <strong>${a.name}</strong><small>${countryName(a.country)} · ${a.statements} statement${a.statements === 1 ? '' : 's'}</small></button>`)}
-      </div>
+      <label class="picker" aria-label="Agency">
+        <select value=${agency ? agency.key : ''} onChange=${(e) => choose(e.target.value)}>
+          <option value="">All agencies (${agencies.length} agencies, ${statements.length} statement${statements.length === 1 ? '' : 's'})</option>
+          ${agencies.map((a) => html`<option value=${a.key}>${a.name} · ${countryName(a.country)} · ${a.statements} statement${a.statements === 1 ? '' : 's'}</option>`)}
+        </select>
+      </label>
       <${ClientsCard} agencies=${agency ? [agency] : agencies} single=${!!agency} />`}
 
     ${queue.length > 0 && html`

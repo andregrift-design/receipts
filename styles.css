@@ -311,17 +311,16 @@ td small { color: var(--muted); }
 .settings { max-width: 680px; margin: 0 auto; }
 .row-form { display: flex; gap: 8px; }
 
-/* ---------- agency chips ---------- */
+/* ---------- agency picker ---------- */
 
-.chips { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0 22px; }
-.chip { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 10px 16px; min-width: 150px;
-  background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); cursor: pointer; }
-.chip strong { font-weight: 600; }
-.chip small { color: var(--muted); font-size: 12px; }
-.chip:hover { border-color: var(--muted); }
-.chip.on { background: var(--ink); border-color: var(--ink); color: var(--bg); }
-.chip.on small { color: var(--bg); opacity: .75; }
-@media (max-width: 700px) { .chips { flex-wrap: nowrap; overflow-x: auto; margin-inline: -14px; padding: 2px 14px 6px; } .chip { flex: none; } }
+.picker { display: block; max-width: 520px; margin: 16px 0 24px; }
+.picker .kicker { display: block; margin: 0 2px 6px; }
+.picker select { -webkit-appearance: none; appearance: none; width: 100%; padding: 13px 44px 13px 16px; font-size: 16px; font-weight: 600; cursor: pointer;
+  background-color: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow);
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: right 22px center, right 16px center; background-size: 6px 6px, 6px 6px; background-repeat: no-repeat; }
+.picker select:hover { border-color: var(--muted); }
+.picker select:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
 /* ---------- home ---------- */
 
