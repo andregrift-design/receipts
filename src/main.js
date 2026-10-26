@@ -2,12 +2,12 @@ import { html, render, useState, useEffect, useRef, useMemo } from './ui.js';
 import * as api from './api.js';
 import {
   CATEGORIES, CURRENCIES, COUNTRIES, RATES, HOME_COUNTRY, money, fmtDate, problems, splitGross, linesSum,
-  fxFor, isNum, round2, quarterOf, quarterRange, quarterLabel, summarize, vatLabel, isHome, countryName, DOC_TYPES, weakProof,
+  fxFor, isNum, round2, quarterOf, quarterRange, quarterLabel, summarize, countryName, DOC_TYPES, weakProof,
   usdConversion, eurConversion,
 } from './vat.js';
 import { downloadExcel, downloadPdf, downloadZip, numbered } from './export.js';
 
-const VERSION = '1.6';
+const VERSION = '1.6.1';
 
 // ---------- helpers ----------
 
@@ -767,7 +767,7 @@ function Quarter({ receipts, arg, owner }) {
         <h1>${quarterLabel(year, quarter)}</h1>
         <button class="icon" onClick=${() => step(1)} aria-label="Next period">›</button>
       </div>
-      <div class="qswitch no-print">
+      <div class="qswitch">
         <div class="seg">
           ${[1, 2, 3, 4].map((n) => html`<a class=${quarter === n ? 'on' : ''} href=${`#/quarter/${year}-${n}`}>Q${n}</a>`)}
           <a class=${!quarter ? 'on' : ''} href=${`#/quarter/${year}-0`}>Year</a>
@@ -777,7 +777,6 @@ function Quarter({ receipts, arg, owner }) {
           <button class=${cur === 'USD' ? 'on' : ''} onClick=${() => setCurrency('USD')}>USD · US CPA</button>
         </div>
       </div>
-      <p class="print-only">${owner} · printed ${new Date().toLocaleDateString('en-US')}</p>
 
       ${cur === 'USD' && !usd && html`<p class="hint">Loading USD exchange rates…</p>`}
       ${cur === 'USD' && usd?.error && html`<div class="note bad">${usd.error}</div>`}
@@ -825,7 +824,7 @@ function Quarter({ receipts, arg, owner }) {
         : 'Foreign currencies at the ECB rate on the receipt date.'} ${inQ.length} receipts, ${m(s.total.gross)} in total.</p>`}
       `}
 
-      <div class="actions no-print">
+      <div class="actions">
         <button class="primary" disabled=${!ready} onClick=${() => run('Excel…', () => downloadExcel(inQ, meta))}>Download Excel${cur === 'USD' ? ' (USD)' : ''}</button>
         <button disabled=${!ready} onClick=${() => run('PDF…', () => downloadPdf(inQ, meta, (n, t) => setBusy(`PDF: photo ${n} of ${t}…`)))}>Download PDF${cur === 'USD' ? ' (USD)' : ''}</button>
         <button disabled=${!ready} onClick=${() => run('ZIP…', () => downloadZip(inQ, meta, (n, t) => setBusy(`ZIP: photo ${n} of ${t}…`)))}>ZIP with photos</button>
@@ -915,6 +914,7 @@ function Settings({ user, viewers, sharedWithMe, reload }) {
 // ---------- boot ----------
 
 async function boot() {
+  localStorage.removeItem('numberFormat'); // setting of the old CSV export
   const root = document.getElementById('app');
   try {
     await api.initClient();

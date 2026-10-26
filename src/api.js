@@ -179,7 +179,7 @@ async function outbox(mode, fn) {
 export const queued = () => outbox('readonly', (s) => s.getAll());
 
 // Phone photos are large: scale to 2000 px on the long side, JPEG. PDFs pass through.
-export async function prepareFile(file) {
+async function prepareFile(file) {
   if (file.type === 'application/pdf') return { blob: file, type: 'application/pdf', ext: 'pdf' };
   const bitmap = await createImageBitmap(file);
   const scale = Math.min(1, 2000 / Math.max(bitmap.width, bitmap.height));

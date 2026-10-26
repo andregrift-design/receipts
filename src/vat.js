@@ -52,7 +52,7 @@ export function fmtDate(iso) {
 
 export const isHome = (key) => key.startsWith(`${HOME_COUNTRY}:`);
 
-export function vatKey(receipt, line) {
+function vatKey(receipt, line) {
   const country = receipt.vat_country || HOME_COUNTRY;
   if (line.rate === undefined) return `${country}:unknown`;
   if (line.rate === null || line.rate === '') return `${country}:none`;
@@ -78,7 +78,7 @@ function keyOrder(key) {
   const r = rate === 'none' ? 1000 : rate === 'unknown' ? 2000 : -Number(rate);
   return [country === HOME_COUNTRY ? 0 : 1, country === HOME_COUNTRY ? '' : countryName(country), r];
 }
-export function compareKeys(a, b) {
+function compareKeys(a, b) {
   const x = keyOrder(a), y = keyOrder(b);
   return x[0] - y[0] || x[1].localeCompare(y[1]) || x[2] - y[2];
 }
@@ -141,7 +141,7 @@ export const quarterLabel = (year, q) => {
 };
 
 // One row per VAT line, converted with factor(receipt) (default: to EUR). Receipts without VAT lines get one "unknown" row.
-export function rowsFor(receipts, factor = fxFor) {
+function rowsFor(receipts, factor = fxFor) {
   const rows = [];
   for (const r of receipts) {
     const fx = factor(r);

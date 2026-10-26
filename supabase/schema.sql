@@ -1,4 +1,4 @@
--- Receipts: run this once in Supabase: SQL Editor > New query > paste > Run.
+-- VH5: run this once in Supabase (project "receipts"): SQL Editor > New query > paste > Run.
 -- Safe to run again.
 
 -- ---------- receipts ----------
@@ -8,6 +8,8 @@ create table if not exists public.receipts (
   user_id      uuid        not null default auth.uid() references auth.users on delete cascade,
   file_path    text,                       -- "<user_id>/<id>.jpg" in the receipts bucket
   file_type    text,                       -- image/jpeg, application/pdf, ...
+  doc_type     text        not null default 'receipt'  -- receipt | invoice | payment (payment receipt only) | none (entered by hand)
+               constraint receipts_doc_type check (doc_type in ('receipt', 'invoice', 'payment', 'none')),
   status       text        not null default 'processing'
                check (status in ('processing', 'review', 'done', 'error')),
   store        text,
@@ -20,6 +22,7 @@ create table if not exists public.receipts (
   vat_country  text        not null default 'NL',  -- country of the store; foreign VAT is reported separately
   vat_lines    jsonb       not null default '[]',  -- [{rate: 21 | 9 | 0 | null (no VAT), net, vat}]
   fx_rate      numeric(14,6),              -- EUR for 1 unit of currency (ECB, receipt date)
+  fx_date      date,                       -- date of that rate: the receipt date, or the last business day before it
   notes        text,
   issues       jsonb       not null default '[]',  -- what the reader was unsure about
   extraction   jsonb,                      -- raw result from the reader
@@ -27,16 +30,6 @@ create table if not exists public.receipts (
   created_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now()
 );
-
--- Added later (safe to run again)
-alter table public.receipts add column if not exists store_address text;
--- date of the ECB rate used (the receipt date, or the last business day before it)
-alter table public.receipts add column if not exists fx_date date;
--- receipt | invoice | payment (only a payment receipt: card slip, bank or payment app) | none (entered by hand)
-alter table public.receipts add column if not exists doc_type text not null default 'receipt';
-do $$ begin
-  alter table public.receipts add constraint receipts_doc_type check (doc_type in ('receipt', 'invoice', 'payment', 'none'));
-exception when duplicate_object then null; end $$;
 
 create index if not exists receipts_user_date on public.receipts (user_id, receipt_date);
 

@@ -1,9 +1,6 @@
 # VH5
 
-Receipts app for Viola Haqi (VH5).
-
-
-Photograph a receipt; Claude reads the store, date, amount, currency and VAT. You check what it found, fill in what's missing, and at the end of each quarter you (or your accountant) download an overview per VAT category.
+Receipts app for Viola Haqi (VH5). Photograph a receipt; Claude reads the store, address, date, amount, currency and VAT. You check what it found, fill in what's missing, and at the end of each quarter (or year) you or your accountants download an overview in EUR or USD.
 
 Works on iPhone, iPad and Mac as a home-screen app. Everything syncs through your account.
 
@@ -11,11 +8,11 @@ Live at **https://andregrift-design.github.io/receipts/**
 
 ## How it works
 
-- **Add**: Take photo (camera) or Upload files (photos and PDFs, several at once). On a laptop you can drop files onto the page. Offline, photos wait on the device and upload when you're back online.
-- **Read**: the `extract` edge function sends the photo to Claude and fills in store, description, category, date, currency, total, VAT country and one line per VAT rate. Foreign currencies get the ECB rate of the receipt date.
+- **Add**: Take photo (camera inside the app, several in a row), Photos & files (photos and PDFs, several at once) or Enter manually. On a laptop you can drop files onto the page. Offline, photos wait on the device and upload when you're back online.
+- **Read**: the `extract` edge function sends the photo to Claude and fills in document type, store, address, country (from the address), description, category, date, currency, total and one line per VAT rate. Foreign currencies get the ECB rate of the receipt date, stored with the date of that rate.
 - **Check**: a receipt is **Done** when the date, store or description, amount, exchange rate and VAT are filled in and the VAT lines add up to the total. Anything else shows as **Check** with what's missing. The editor shows the photo next to the fields; "Fill" splits the total into net and VAT for the chosen rate.
 - **No receipt?** Upload the payment receipt (card slip, bank screenshot) or tap Enter manually and attach a document later. Each record has a document type: Receipt, Invoice, Payment receipt only, No document. The overview shows how much Dutch VAT rests on payment receipts or no document.
-- **Quarter**: Netherlands (21%, 9%, 0%, no VAT, VAT not entered, Dutch VAT to deduct) and foreign VAT (per country and rate, totals per country) shown separately, in EUR. Downloads: Excel (Summary and Receipts sheets), PDF (overview, list, one page per photo), ZIP (Excel + photos, numbered to match).
+- **Quarter**: Netherlands (21%, 9%, 0%, no VAT, VAT not entered, Dutch VAT to deduct) and foreign VAT (per country and rate, totals per country) shown separately, plus totals per expense category. Downloads: Excel (Summary and Receipts sheets), PDF (overview, list, one page per photo), ZIP (Excel + photos, numbered to match).
 - **US CPA**: on the Quarter page switch to **USD · US CPA**. Every amount is converted on its receipt date (receipt currency to EUR at the ECB rate, then EUR to USD at the ECB rate of that day). Choose **Year** for the whole calendar year. Excel and PDF then come out in USD, with the rate and rate date per receipt.
 - **Accountant**: Settings → Share with your accountant → their email. They create an account with that email at the same address and see your receipts and overviews read-only.
 

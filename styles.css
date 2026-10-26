@@ -44,8 +44,6 @@ label { display: block; font-size: 13px; color: var(--muted); margin: 0 0 12px; 
 label > input, label > select, label > textarea { margin-top: 4px; color: var(--ink); }
 label.inline { display: flex; align-items: center; gap: 8px; margin: 0; }
 label.inline select { width: auto; margin: 0; }
-label.radio { display: flex; gap: 8px; align-items: center; color: var(--ink); font-size: 15px; }
-label.radio input { width: auto; }
 button {
   border: 1px solid var(--line); background: var(--card); padding: 9px 14px; border-radius: 9px; cursor: pointer;
 }
@@ -62,7 +60,6 @@ button.big { padding: 14px 18px; font-size: 16px; flex: 1; }
 .hint.bad { color: var(--bad); }
 .center { text-align: center; }
 .msg { font-size: 14px; margin: 10px 0 0; }
-.print-only { display: none; }
 small { color: var(--muted); }
 .nowrap { white-space: nowrap; }
 
@@ -182,20 +179,6 @@ tfoot td { font-weight: 700; border-bottom: 0; }
 .settings { max-width: 640px; margin: 0 auto; }
 .row-form { display: flex; gap: 8px; }
 .settings .row { padding: 10px 0; }
-
-/* ---------- print (quarter overview as PDF) ---------- */
-
-@media print {
-  :root { --bg: #fff; --card: #fff; --ink: #000; --muted: #555; --line: #ccc; color-scheme: light; }
-  .topbar, .banner, .no-print, .qhead button, .note a, .badge { display: none !important; }
-  .print-only { display: block; text-align: center; color: var(--muted); }
-  .main { padding: 0; max-width: none; }
-  .card { border: 0; padding: 0; }
-  .detail { break-inside: auto; }
-  tr { break-inside: avoid; }
-  a { color: inherit; }
-  body { font-size: 11pt; }
-}
 
 /* ---------- camera ---------- */
 
