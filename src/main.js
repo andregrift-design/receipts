@@ -3,11 +3,11 @@ import * as api from './api.js';
 import {
   CATEGORIES, CURRENCIES, COUNTRIES, RATES, HOME_COUNTRY, money, fmtDate, problems, splitGross, linesSum,
   fxFor, isNum, round2, quarterOf, quarterRange, quarterLabel, summarize, countryName, DOC_TYPES, weakProof,
-  usdConversion, eurConversion, JOB_KINDS, DEDUCTION_TYPES, lineTotal, statementAsReceipt, statementProblems, summarizeIncome, mergeCategories, neg,
+  usdConversion, eurConversion, JOB_KINDS, DEDUCTION_TYPES, lineTotal, statementAsReceipt, statementProblems, summarizeIncome, mergeCategories, neg, agencyOverview,
 } from './vat.js';
 import { downloadExcel, downloadPdf, downloadZip, numbered } from './export.js';
 
-const VERSION = '1.7.2';
+const VERSION = '1.8';
 
 // ---------- helpers ----------
 
@@ -254,7 +254,7 @@ function Main({ user }) {
     body = r ? html`<${Editor} receipt=${r} readOnly=${!mine} key=${r.id} />` : html`<p class="boot">Receipt not found. <a href="#/">Back</a></p>`;
   } else if (view === 's') {
     const st = statements.find((x) => x.id === arg);
-    body = st ? html`<${StatementEditor} statement=${st} readOnly=${!mine} key=${st.id} />` : html`<p class="boot">Statement not found. <a href="#/income">Back</a></p>`;
+    body = st ? html`<${StatementEditor} statement=${st} known=${statements} readOnly=${!mine} key=${st.id} />` : html`<p class="boot">Statement not found. <a href="#/income">Back</a></p>`;
   } else if (view === 'income') body = html`<${Income} statements=${statements} queue=${mine ? queue.filter((i) => i.kind === 'statement') : []} canAdd=${mine} addFiles=${(f) => addFiles(f, 'statement')} />`;
   else if (view === 'quarter') body = html`<${Quarter} receipts=${receipts} statements=${statements} arg=${arg} owner=${ownerLabel} />`;
   else if (view === 'settings') body = html`<${Settings} user=${user} viewers=${myViewers} sharedWithMe=${sharedWithMe} reload=${loadShares} />`;
@@ -731,8 +731,13 @@ function Editor({ receipt, readOnly }) {
 
 function Income({ statements, queue, canAdd, addFiles }) {
   const input = useRef();
+  const agencies = useMemo(() => agencyOverview(statements), [statements]);
+  const [sel, setSel] = useState(localStorage.getItem('agency') || '');
+  const choose = (k) => { setSel(k); localStorage.setItem('agency', k); };
+  const agency = agencies.find((a) => a.key === sel);
+  const shown = agency ? statements.filter((st) => (st.agency || '').trim().toLowerCase() === agency.key) : statements;
   const groups = [];
-  for (const st of statements) {
+  for (const st of shown) {
     const key = st.statement_date ? st.statement_date.slice(0, 7) : (st.status === 'processing' ? 'new' : 'nodate');
     let g = groups.find((x) => x.key === key);
     if (!g) groups.push((g = { key, items: [] }));
@@ -749,6 +754,14 @@ function Income({ statements, queue, canAdd, addFiles }) {
           <input ref=${input} type="file" accept="application/pdf,image/*" multiple hidden onChange=${(e) => { addFiles(e.target.files); e.target.value = ''; }} />
         </div>
         <p class="hint">PDF or photo of a payment statement from an agency, from any country or currency. Claude reads the agency, the jobs, fees, VAT and deductions; you check the result. On a laptop you can also drop the files here.</p>`}
+      ${agencies.length > 0 && html`
+        <div class="filters">
+          <select class="agency-pick" value=${agency ? agency.key : ''} onChange=${(e) => choose(e.target.value)} aria-label="Agency">
+            <option value="">All agencies (${agencies.length})</option>
+            ${agencies.map((a) => html`<option value=${a.key}>${a.name} · ${countryName(a.country)}</option>`)}
+          </select>
+        </div>
+        <${ClientsCard} agencies=${agency ? [agency] : agencies} single=${!!agency} />`}
       ${queue.length > 0 && html`
         <section class="card">${queue.map((i) => html`<div class="row"><span class="what">Statement from ${new Date(i.added).toLocaleString('en-US')}</span><${Badge} status="queued" /></div>`)}
           ${api.lastUploadError && html`<p class="hint bad">Upload problem: ${api.lastUploadError}</p>`}</section>`}
@@ -771,6 +784,25 @@ function Income({ statements, queue, canAdd, addFiles }) {
           </div>
         </section>`)}
     </div>`;
+}
+
+// Clients worked for, per agency (all agencies, or the selected one).
+function ClientsCard({ agencies, single }) {
+  return html`
+    <section class="card clients">
+      ${agencies.map((a) => html`
+        <div class="agency-block">
+          <div class="agency-head">
+            <strong>${a.name}</strong>
+            <small>${[countryName(a.country), single && a.address, `${a.statements} statement${a.statements > 1 ? 's' : ''}`, `fees ${money(a.fee)}`].filter(Boolean).join(' · ')}</small>
+          </div>
+          <table class="summary">
+            <thead><tr><th>Client</th><th class="n">Jobs</th><th>Last job</th><th class="n">Fees</th></tr></thead>
+            <tbody>${a.clients.map((c) => html`<tr><td>${c.name}${c.kinds.length ? html` <small>${c.kinds.join(', ')}</small>` : ''}</td><td class="n">${c.jobs}</td><td class="nowrap">${c.last ? fmtDate(c.last) : '–'}</td><td class="n">${money(c.fee)}</td></tr>`)}</tbody>
+          </table>
+        </div>`)}
+      <p class="hint">Fees in EUR, before deductions.</p>
+    </section>`;
 }
 
 const emptyLine = () => ({ job_date: '', client: '', description: '', invoice_no: '', kind: 'day_rate', fee: '', vat_rate: '0', vat: '0', expenses: '0', deductions: [] });
@@ -800,7 +832,7 @@ function stFromForm(f) {
   };
 }
 
-function StatementEditor({ statement, readOnly }) {
+function StatementEditor({ statement, known = [], readOnly }) {
   const [form, setForm] = useState(() => stToForm(statement));
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState('');
@@ -816,6 +848,16 @@ function StatementEditor({ statement, readOnly }) {
     if (readOnly || !dirty || form.currency === 'EUR' || fxTouched.current || !form.statement_date) return;
     api.ecbRate(form.currency, form.statement_date).then((r) => r && setForm((f) => ({ ...f, fx_rate: String(r.rate), fx_date: r.date }))).catch(() => {});
   }, [form.currency, form.statement_date]);
+
+  // Pick lists: agencies and clients from all statements.
+  const agencies = useMemo(() => agencyOverview(known), [known]);
+  const current = agencies.find((a) => a.key === (form.agency || '').trim().toLowerCase());
+  const clients = [...new Set([...(current?.clients || []), ...agencies.flatMap((a) => a.clients)].map((c) => c.name))];
+  const pickAgency = (name) => {
+    const a = agencies.find((x) => x.key === name.trim().toLowerCase());
+    // A known agency fills in its country and address from its latest statement.
+    set(a ? { agency: a.name, agency_country: a.country || form.agency_country, agency_address: a.address || form.agency_address } : { agency: name });
+  };
 
   const value = stFromForm(form);
   const todo = statementProblems(value);
@@ -862,7 +904,8 @@ function StatementEditor({ statement, readOnly }) {
           ${statement.issues?.length > 0 && html`<div class="note"><strong>Check:</strong><ul>${statement.issues.map((i) => html`<li>${i}</li>`)}</ul></div>`}
           <fieldset disabled=${readOnly}>
             <div class="grid-addr">
-              <label>Agency<input value=${form.agency || ''} onInput=${(e) => set({ agency: e.target.value })} /></label>
+              <label>Agency<input list="agency-list" value=${form.agency || ''} placeholder="Choose or type" onInput=${(e) => pickAgency(e.target.value)} /></label>
+              <datalist id="agency-list">${agencies.map((a) => html`<option value=${a.name}>${countryName(a.country)}</option>`)}</datalist>
               <label>Country
                 <select value=${form.agency_country} onChange=${(e) => set({ agency_country: e.target.value })}>
                   ${[...new Set([...Object.keys(COUNTRIES), form.agency_country])].map((k) => html`<option value=${k}>${countryName(k)}</option>`)}
@@ -893,7 +936,7 @@ function StatementEditor({ statement, readOnly }) {
                 <div class="job-head"><h3>Job ${i + 1}</h3>
                   <button type="button" class="link danger" onClick=${() => set({ lines: form.lines.filter((_, j) => j !== i) })}>Remove job</button></div>
                 <div class="grid2">
-                  <label>Client<input value=${l.client || ''} onInput=${(e) => setLine(i, { client: e.target.value })} /></label>
+                  <label>Client<input list="client-list" value=${l.client || ''} placeholder="Choose or type" onInput=${(e) => setLine(i, { client: e.target.value })} /></label>
                   <label>Job date<input type="date" value=${l.job_date || ''} onInput=${(e) => setLine(i, { job_date: e.target.value })} /></label>
                 </div>
                 <label>Job<input value=${l.description || ''} onInput=${(e) => setLine(i, { description: e.target.value })} /></label>
@@ -928,6 +971,7 @@ function StatementEditor({ statement, readOnly }) {
                   <span class="hint">Paid for this job: <strong>${money(lineTotal(value.lines[i]), form.currency)}</strong></span>
                 </div>
               </div>`)}
+            <datalist id="client-list">${clients.map((c) => html`<option value=${c} />`)}</datalist>
             <button type="button" class="link" onClick=${() => set({ lines: [...form.lines, emptyLine()] })}>+ Add job</button>
 
             <div class="grid2 total-paid">

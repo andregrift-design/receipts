@@ -237,3 +237,7 @@ tfoot td { font-weight: 700; border-bottom: 0; }
 .total-paid { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 10px; }
 .income-split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 14px; }
 @media (max-width: 560px) { .income-split { grid-template-columns: 1fr; } }
+.agency-pick { max-width: 420px; }
+.clients .agency-block + .agency-block { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 12px; }
+.agency-head { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; margin-bottom: 4px; }
+.list .card.clients { padding: 12px 16px; }

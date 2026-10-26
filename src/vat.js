@@ -326,3 +326,34 @@ export function mergeCategories(receiptCats, incomeCats) {
   }
   return [...m.values()].sort((a, b) => b.gross - a.gross);
 }
+
+// Agencies and the clients worked for through them, from statements. Amounts in EUR (statement date rate).
+export function agencyOverview(statements) {
+  const agencies = new Map();
+  for (const st of statements) {
+    const name = (st.agency || '').trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    const f = fxFor(statementAsReceipt(st));
+    if (!agencies.has(key)) agencies.set(key, { key, name, country: st.agency_country, address: st.agency_address, statements: 0, fee: 0, paid: 0, clients: new Map(), last: '' });
+    const a = agencies.get(key);
+    a.statements++;
+    if ((st.statement_date || '') >= a.last) { a.last = st.statement_date || a.last; a.country = st.agency_country || a.country; a.address = st.agency_address || a.address; }
+    if (f != null) a.paid += n(st.total_paid) * f;
+    for (const l of st.lines || []) {
+      const c = (l.client || 'Unknown client').trim();
+      const ck = c.toLowerCase();
+      if (!a.clients.has(ck)) a.clients.set(ck, { name: c, jobs: 0, fee: 0, last: '', kinds: new Set() });
+      const e = a.clients.get(ck);
+      e.jobs++;
+      if (f != null) { e.fee += n(l.fee) * f; a.fee += n(l.fee) * f; }
+      const d = l.job_date || st.statement_date || '';
+      if (d > e.last) e.last = d;
+      if (l.kind) e.kinds.add(JOB_KINDS[l.kind] || l.kind);
+    }
+  }
+  return [...agencies.values()]
+    .map((a) => ({ ...a, fee: round2(a.fee), paid: round2(a.paid),
+      clients: [...a.clients.values()].map((c) => ({ ...c, fee: round2(c.fee), kinds: [...c.kinds] })).sort((x, y) => y.fee - x.fee) }))
+    .sort((x, y) => x.name.localeCompare(y.name));
+}

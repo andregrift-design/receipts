@@ -16,7 +16,7 @@ const statementsData = [
   { id: 's2', user_id: 'me', status: 'done', agency: 'Alpine Models e.U.', agency_country: 'AT', agency_address: 'Beispielgasse 2, 6020 Innsbruck',
     statement_no: 'P-000002', statement_date: '2026-03-03', currency: 'EUR', fx_rate: 1, total_paid: 750, issues: [], file_path: 'me/st-s2.png', file_type: 'image/png',
     lines: [{ job_date: '2025-10-22', client: 'Client B AG', description: 'Production, work day', invoice_no: '000002', kind: 'day_rate', fee: 1000, vat_rate: 0, vat: 0, expenses: 0,
-      deductions: [{ type: 'agency_fee', label: 'Agency fee', amount: 250, vat: 0, reverse_charge: true }] }],
+      deductions: [{ type: 'agency_fee', label: 'Agency fee', amount: 250, vat: 0, reverse_charge: true }]}],
     created_at: '2026-03-04T10:00:00Z', updated_at: '1' },
 ];
 export const sb = {

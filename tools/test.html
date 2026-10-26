@@ -2,7 +2,7 @@
 <script type="importmap">{ "imports": { "/src/api.js": "/tools/mock-api.js" } }</script>
 <pre id="out">running…</pre>
 <script type="module">
-import { problems, summarize, splitGross, quarterRange, quarterLabel, vatLabel, usdConversion, lineTotal, statementProblems, summarizeIncome, mergeCategories } from '../src/vat.js';
+import { problems, summarize, splitGross, quarterRange, quarterLabel, vatLabel, usdConversion, lineTotal, statementProblems, summarizeIncome, mergeCategories, agencyOverview } from '../src/vat.js';
 import { listStatements } from '/src/api.js';
 import { eurUsdRates } from '/src/api.js';
 import { downloadExcel, downloadPdf, numbered } from '../src/export.js';
@@ -107,6 +107,17 @@ eq('pdf with income', files['incpdf.pdf'].size > 5000, true);
   let msg = '';
   try { await real.addFiles([new File([], 'empty.pdf', { type: 'application/pdf' })], 'test-user', 'statement'); } catch (e) { msg = e.message; }
   eq('empty pdf refused', msg.includes('empty.pdf: the file is empty'), true);
+}
+// Agencies and clients (made-up data)
+{
+  const extra = { ...sts[0], id: 's3', statement_date: '2026-08-01', fx_rate: null, currency: 'GBP', lines: [
+    { ...sts[0].lines[0], client: 'client a ltd', job_date: '2026-07-20', fee: 100, kind: 'day_rate' },
+    { ...sts[0].lines[0], client: 'Client C', job_date: '2026-07-21', fee: 50, kind: 'usage' }] };
+  const ov = agencyOverview([...sts, extra]);
+  eq('agencies', ov.map((a) => [a.name, a.country, a.statements]), [['Alpine Models e.U.', 'AT', 1], ['Example Models B.V.', 'NL', 2]]);
+  const ex = ov[1];
+  eq('clients merged by name', ex.clients.map((c) => [c.name, c.jobs, c.last, c.kinds]), [['Client A Ltd', 2, '2026-07-20', ['Buy-out', 'Day rate']], ['Client C', 1, '2026-07-21', ['Usage']]]);
+  eq('fees in EUR skip missing rate', [ex.fee, ex.clients[0].fee], [4000, 4000]);
 }
 let progress = 0;
 await downloadPdf(rs, meta, (n) => { progress = n; });
