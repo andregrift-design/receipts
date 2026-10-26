@@ -1,5 +1,5 @@
 // Offline support: app files and CDN libraries are cached; Supabase and exchange-rate calls always go to the network.
-const VERSION = 'vh5-v10';
+const VERSION = 'vh5-v11';
 const SHELL = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest',
   'src/main.js', 'src/api.js', 'src/vat.js', 'src/export.js', 'src/ui.js', 'src/config.js',
@@ -7,7 +7,8 @@ const SHELL = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // cache: 'reload' skips the browser's HTTP cache, so a new version never caches old files.
+  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {

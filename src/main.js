@@ -7,7 +7,7 @@ import {
 } from './vat.js';
 import { downloadExcel, downloadPdf, downloadZip, numbered } from './export.js';
 
-const VERSION = '1.7';
+const VERSION = '1.7.1';
 
 // ---------- helpers ----------
 
@@ -215,7 +215,11 @@ function Main({ user }) {
   const addFiles = async (files, kind = 'receipt') => {
     if (!files?.length) return;
     if (!mine) setOwner(user.id);
-    await api.addFiles([...files], user.id, kind);
+    try {
+      await api.addFiles([...files], user.id, kind);
+    } catch (e) {
+      alert(e.message);
+    }
     await refreshQueue();
     refresh();
   };
@@ -451,6 +455,7 @@ function List({ receipts, queue, canAdd, addFiles, addManual }) {
       ${queue.length > 0 && html`
         <section class="card">
           ${queue.map((i) => html`<div class="row"><span class="what">Photo from ${new Date(i.added).toLocaleString('en-US')}</span><${Badge} status="queued" /></div>`)}
+          ${api.lastUploadError && html`<p class="hint bad">Upload problem: ${api.lastUploadError}</p>`}
         </section>`}
       ${!receipts.length && !queue.length && html`
         <div class="empty">
@@ -740,7 +745,8 @@ function Income({ statements, queue, canAdd, addFiles }) {
         </div>
         <p class="hint">PDF or photo of a payment statement from an agency, from any country or currency. Claude reads the agency, the jobs, fees, VAT and deductions; you check the result. On a laptop you can also drop the files here.</p>`}
       ${queue.length > 0 && html`
-        <section class="card">${queue.map((i) => html`<div class="row"><span class="what">Statement from ${new Date(i.added).toLocaleString('en-US')}</span><${Badge} status="queued" /></div>`)}</section>`}
+        <section class="card">${queue.map((i) => html`<div class="row"><span class="what">Statement from ${new Date(i.added).toLocaleString('en-US')}</span><${Badge} status="queued" /></div>`)}
+          ${api.lastUploadError && html`<p class="hint bad">Upload problem: ${api.lastUploadError}</p>`}</section>`}
       ${!statements.length && !queue.length && html`<div class="empty"><p>No agency statements yet.</p></div>`}
       ${groups.map((g) => html`
         <section class="month">
@@ -1208,7 +1214,11 @@ async function boot() {
       if (hadController && !reloaded) { reloaded = true; location.reload(); }
     });
     navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
-      .then((reg) => document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && reg.update()))
+      .then((reg) => {
+        // Look for a new version when the app comes to the front, and every 15 minutes while it is open.
+        document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && reg.update());
+        setInterval(() => reg.update(), 15 * 60 * 1000);
+      })
       .catch(console.warn);
   }
 }

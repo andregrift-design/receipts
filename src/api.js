@@ -216,7 +216,8 @@ export const queued = () => outbox('readonly', (s) => s.getAll());
 
 // Phone photos are large: scale to 2000 px on the long side, JPEG. PDFs pass through.
 async function prepareFile(file) {
-  if (file.type === 'application/pdf') return { blob: file, type: 'application/pdf', ext: 'pdf' };
+  // Some apps hand over PDFs without a file type: go by the name too.
+  if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '')) return { blob: file, type: 'application/pdf', ext: 'pdf' };
   const bitmap = await createImageBitmap(file);
   const scale = Math.min(1, 2000 / Math.max(bitmap.width, bitmap.height));
   const canvas = document.createElement('canvas');
@@ -229,29 +230,38 @@ async function prepareFile(file) {
 
 // kind: 'receipt' or 'statement' (agency statement).
 export async function addFiles(files, userId, kind = 'receipt') {
+  const failed = [];
   for (const file of files) {
-    const prepared = await prepareFile(file);
-    const item = { id: crypto.randomUUID(), userId, kind, ...prepared, added: new Date().toISOString() };
-    await outbox('readwrite', (s) => s.put(item));
+    try {
+      const prepared = await prepareFile(file);
+      const item = { id: crypto.randomUUID(), userId, kind, ...prepared, added: new Date().toISOString() };
+      await outbox('readwrite', (s) => s.put(item));
+    } catch (e) {
+      failed.push(`${file.name || 'file'}: ${e.message || e}`);
+    }
   }
-  return flushOutbox();
+  await flushOutbox();
+  if (failed.length) throw new Error(`Could not add ${failed.join('; ')}. Use a PDF, JPEG or PNG.`);
 }
 
 let flushing = null;
+// Last upload problem, shown under the waiting items.
+export let lastUploadError = '';
 export function flushOutbox() {
   if (flushing) return flushing;
   flushing = (async () => {
     // Keep going until the queue is empty: photos taken during an upload join this run.
     for (;;) {
       const items = await queued();
-      if (!items.length || !navigator.onLine) return;
+      if (!items.length) { lastUploadError = ''; return; }
+      if (!navigator.onLine) return;
       for (const item of items) {
         const statement = item.kind === 'statement';
         const path = `${item.userId}/${statement ? 'st-' : ''}${item.id}.${item.ext}`;
         const up = await sb.storage.from('receipts').upload(path, item.blob, { contentType: item.type, upsert: true });
-        if (up.error) { console.warn('upload failed', up.error); return; }
+        if (up.error) { lastUploadError = up.error.message; console.warn('upload failed', up.error); return; }
         const ins = await sb.from(statement ? 'statements' : 'receipts').upsert({ id: item.id, user_id: item.userId, file_path: path, file_type: item.type, status: 'processing' });
-        if (ins.error) { console.warn('insert failed', ins.error); return; }
+        if (ins.error) { lastUploadError = ins.error.message; console.warn('insert failed', ins.error); return; }
         await outbox('readwrite', (s) => s.delete(item.id));
         // Reading takes a few seconds; the row updates through realtime when done.
         sb.functions.invoke('extract', { body: { id: item.id, kind: item.kind || 'receipt' } }).catch(console.warn);
