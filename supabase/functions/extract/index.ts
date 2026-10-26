@@ -43,9 +43,13 @@ const str = { anyOf: [{ type: 'string' }, { type: 'null' }] };
 const SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['is_receipt', 'store', 'store_address', 'description', 'category', 'date', 'currency', 'total', 'vat_country', 'vat_lines', 'issues'],
+  required: ['document_type', 'store', 'store_address', 'description', 'category', 'date', 'currency', 'total', 'vat_country', 'vat_lines', 'issues'],
   properties: {
-    is_receipt: { type: 'boolean', description: 'False when the image is not a receipt or invoice.' },
+    document_type: {
+      type: 'string',
+      enum: ['receipt', 'invoice', 'payment', 'other'],
+      description: 'receipt = till receipt; invoice = invoice; payment = only proof of payment (card terminal slip, bank or payment app screenshot, PayPal or card statement line); other = not a receipt at all.',
+    },
     store: { ...str, description: 'Name of the shop, restaurant or supplier as printed.' },
     store_address: { ...str, description: 'Address of the store as printed: street, postcode, city, country if shown.' },
     description: { ...str, description: 'What was bought, in a few words of English, e.g. "Lunch, 2 people" or "Diesel 42.3 L".' },
@@ -81,6 +85,7 @@ Extract exactly what is printed. Never invent amounts: use null when a value is 
 Dutch terms: BTW = VAT, "excl." = net, "incl." = gross, "hoog" usually 21%, "laag" usually 9%. German: MwSt/USt. French: TVA.
 If the receipt shows only VAT totals per rate, derive net = gross - VAT for that rate. If it shows only the total and one rate, compute net and VAT from it, and note that you computed it.
 If VAT is not shown at all, leave vat_lines empty and add an issue.
+Payment receipts (card terminal slips, bank or payment app confirmations) show only merchant, date and amount: never compute VAT for them; leave vat_lines empty and add the issue "Only a payment receipt: enter the VAT by hand if you know it." Use the merchant name as store, and the merchant's city or country if shown.
 Amounts are numbers with a dot as decimal separator. Dates: receipts from the Netherlands and Europe are day-month-year.
 Country: determine it from the store's address. Use, in this order: a country name; the postcode format (Dutch 1234 AB; Belgian 4 digits with a Belgian city; German 5 digits; French 5 digits; UK like SW1A 1AA); the phone prefix (+31, +32, +49, +33, +44); the VAT number prefix (NL...B01, BE0..., DE..., FR..., GB...); city names; the language and currency. If no address is printed, use the other clues and say in issues that the country was guessed. Online orders: the seller's country, unless the receipt charges Dutch VAT (21% BTW from a Dutch VAT number), then NL.
 Pick the category that fits best:
@@ -147,7 +152,8 @@ Deno.serve(async (req) => {
     const x = JSON.parse(text.text);
 
     const issues: string[] = [...(x.issues || [])];
-    if (!x.is_receipt) issues.unshift('This does not look like a receipt.');
+    if (x.document_type === 'other') issues.unshift('This does not look like a receipt.');
+    const docType = x.document_type === 'invoice' || x.document_type === 'payment' ? x.document_type : 'receipt';
 
     const date = /^\d{4}-\d{2}-\d{2}$/.test(x.date || '') ? x.date : null;
     const currency = /^[A-Z]{3}$/.test(x.currency || '') ? x.currency : 'EUR';
@@ -165,13 +171,13 @@ Deno.serve(async (req) => {
       && Math.abs(sum - x.total) <= 0.02 * Math.max(1, lines.length);
     if (x.total != null && lines.length && !adds) issues.push(`VAT lines add up to ${sum.toFixed(2)}, total is ${Number(x.total).toFixed(2)}.`);
 
-    const complete = x.is_receipt && date && x.total != null && (x.store || x.description) && adds;
+    const complete = x.document_type !== 'other' && date && x.total != null && (x.store || x.description) && adds;
     const fx = date ? await fxRate(currency, date) : null;
     if (currency !== 'EUR' && fx == null) issues.push(`No ECB exchange rate found for ${currency}.`);
 
     const update = {
       status: complete && (currency === 'EUR' || fx != null) && !issues.length ? 'done' : 'review',
-      store: x.store, store_address: x.store_address, description: x.description, category: x.category,
+      doc_type: docType, store: x.store, store_address: x.store_address, description: x.description, category: x.category,
       receipt_date: date, currency, total: x.total != null ? round2(x.total) : null,
       vat_country: /^[A-Z]{2}$/.test(x.vat_country || '') ? x.vat_country : row.vat_country,
       vat_lines: lines, fx_rate: fx, issues, extraction: x, error: null,

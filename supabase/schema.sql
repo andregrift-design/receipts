@@ -30,6 +30,11 @@ create table if not exists public.receipts (
 
 -- Added later (safe to run again)
 alter table public.receipts add column if not exists store_address text;
+-- receipt | invoice | payment (only a payment receipt: card slip, bank or payment app) | none (entered by hand)
+alter table public.receipts add column if not exists doc_type text not null default 'receipt';
+do $$ begin
+  alter table public.receipts add constraint receipts_doc_type check (doc_type in ('receipt', 'invoice', 'payment', 'none'));
+exception when duplicate_object then null; end $$;
 
 create index if not exists receipts_user_date on public.receipts (user_id, receipt_date);
 

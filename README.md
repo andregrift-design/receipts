@@ -11,7 +11,8 @@ Live at **https://andregrift-design.github.io/receipts/**
 - **Add**: Take photo (camera) or Upload files (photos and PDFs, several at once). On a laptop you can drop files onto the page. Offline, photos wait on the device and upload when you're back online.
 - **Read**: the `extract` edge function sends the photo to Claude and fills in store, description, category, date, currency, total, VAT country and one line per VAT rate. Foreign currencies get the ECB rate of the receipt date.
 - **Check**: a receipt is **Done** when the date, store or description, amount, exchange rate and VAT are filled in and the VAT lines add up to the total. Anything else shows as **Check** with what's missing. The editor shows the photo next to the fields; "Fill" splits the total into net and VAT for the chosen rate.
-- **Quarter**: summary per VAT category (21%, 9%, 0%, no VAT, foreign VAT per country and rate, VAT not entered) in EUR, with the Dutch input VAT total. Downloads: CSV (summary + one row per VAT line), ZIP (CSV + all photos, numbered to match), or Print / PDF.
+- **No receipt?** Upload the payment receipt (card slip, bank screenshot) or tap Enter manually and attach a document later. Each record has a document type: Receipt, Invoice, Payment receipt only, No document. The overview shows how much Dutch VAT rests on payment receipts or no document.
+- **Quarter**: Netherlands (21%, 9%, 0%, no VAT, VAT not entered, Dutch VAT to deduct) and foreign VAT (per country and rate, totals per country) shown separately, in EUR. Downloads: Excel (Summary and Receipts sheets), PDF (overview, list, one page per photo), ZIP (Excel + photos, numbered to match).
 - **Accountant**: Settings → Share with your accountant → their email. They create an account with that email at the same address and see your receipts and overviews read-only.
 
 ## Setup (already done)
@@ -37,9 +38,10 @@ GitHub Pages from `main` of `andregrift-design/receipts`. To ship a change: comm
 | `src/main.js` | Screens: sign-in, list, editor, quarter, settings |
 | `src/api.js` | Supabase calls, photo resize, offline upload queue |
 | `src/vat.js` | VAT categories, expense categories, checks, quarter totals |
-| `src/export.js` | CSV and ZIP export |
+| `src/export.js` | Excel, PDF and ZIP export |
 | `supabase/` | Database schema and the receipt reader |
-| `tools/test.html` | Logic tests: open `/tools/test.html` on a local server |
+| `tools/test.html` | Logic and export tests: open `/tools/test.html` on a local server |
+| `tools/ui-test.html` | All screens with sample data, no account needed |
 | `tools/make-icon.swift` | Draws the app icons |
 
 ## Costs

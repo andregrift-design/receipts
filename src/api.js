@@ -38,7 +38,7 @@ export function watchReceipts(ownerId, onChange) {
 
 export async function saveReceipt(r) {
   const fields = {
-    store: r.store || null, store_address: r.store_address || null, description: r.description || null, category: r.category || null,
+    doc_type: r.doc_type || 'receipt', store: r.store || null, store_address: r.store_address || null, description: r.description || null, category: r.category || null,
     receipt_date: r.receipt_date || null, currency: r.currency || 'EUR',
     total: r.total === '' || r.total == null ? null : Number(r.total),
     vat_country: r.vat_country || 'NL',
@@ -52,6 +52,30 @@ export async function saveReceipt(r) {
   };
   fields.status = problems(fields).length ? 'review' : 'done';
   const { data, error } = await sb.from('receipts').update(fields).eq('id', r.id).select().single();
+  if (error) throw error;
+  return data;
+}
+
+// A record without a document yet: everything is filled in by hand.
+export async function createManual(userId) {
+  const { data, error } = await sb.from('receipts')
+    .insert({ user_id: userId, status: 'review', doc_type: 'none', receipt_date: new Date().toISOString().slice(0, 10) })
+    .select().single();
+  if (error) throw error;
+  return data;
+}
+
+// Add or replace the photo/PDF of an existing record. Does not read it; "Read again" does.
+export async function attachFile(r, file) {
+  const prepared = await prepareFile(file);
+  const path = `${r.user_id}/${r.id}.${prepared.ext}`;
+  if (r.file_path && r.file_path !== path) await sb.storage.from('receipts').remove([r.file_path]);
+  const up = await sb.storage.from('receipts').upload(path, prepared.blob, { contentType: prepared.type, upsert: true });
+  if (up.error) throw up.error;
+  urlCache.delete(path);
+  const { data, error } = await sb.from('receipts')
+    .update({ file_path: path, file_type: prepared.type, doc_type: r.doc_type === 'none' ? 'receipt' : r.doc_type })
+    .eq('id', r.id).select().single();
   if (error) throw error;
   return data;
 }

@@ -2,11 +2,11 @@ import { html, render, useState, useEffect, useRef, useMemo } from './ui.js';
 import * as api from './api.js';
 import {
   CATEGORIES, CURRENCIES, COUNTRIES, RATES, HOME_COUNTRY, money, fmtDate, problems, splitGross, linesSum,
-  fxFor, isNum, round2, quarterOf, quarterRange, quarterLabel, summarize, vatLabel, isHome, countryName,
+  fxFor, isNum, round2, quarterOf, quarterRange, quarterLabel, summarize, vatLabel, isHome, countryName, DOC_TYPES, weakProof,
 } from './vat.js';
-import { downloadCsv, downloadZip, numbered, getNumberFormat, setNumberFormat } from './export.js';
+import { downloadExcel, downloadPdf, downloadZip, numbered } from './export.js';
 
-const VERSION = '1.4';
+const VERSION = '1.5';
 
 // ---------- helpers ----------
 
@@ -215,6 +215,15 @@ function Main({ user }) {
     refresh();
   };
 
+  const addManual = async () => {
+    if (!mine) setOwner(user.id);
+    try {
+      const r = await api.createManual(user.id);
+      setReceipts((list) => (list && !list.some((x) => x.id === r.id) ? [r, ...list] : list));
+      go(`r/${r.id}`);
+    } catch (e) { alert(e.message); }
+  };
+
   const onDrop = (e) => {
     e.preventDefault();
     setDragging(false);
@@ -230,7 +239,7 @@ function Main({ user }) {
     body = r ? html`<${Editor} receipt=${r} readOnly=${!mine} key=${r.id} />` : html`<p class="boot">Receipt not found. <a href="#/">Back</a></p>`;
   } else if (view === 'quarter') body = html`<${Quarter} receipts=${receipts} arg=${arg} owner=${ownerLabel} />`;
   else if (view === 'settings') body = html`<${Settings} user=${user} viewers=${myViewers} sharedWithMe=${sharedWithMe} reload=${loadShares} />`;
-  else body = html`<${List} receipts=${receipts} queue=${mine ? queue : []} canAdd=${mine} addFiles=${addFiles} />`;
+  else body = html`<${List} receipts=${receipts} queue=${mine ? queue : []} canAdd=${mine} addFiles=${addFiles} addManual=${addManual} />`;
 
   return html`
     <div class="app ${dragging ? 'dragging' : ''}"
@@ -260,7 +269,7 @@ function Main({ user }) {
 
 const hasCamera = !!navigator.mediaDevices?.getUserMedia;
 
-function AddButtons({ addFiles }) {
+function AddButtons({ addFiles, addManual }) {
   const camera = useRef();
   const files = useRef();
   const [open, setOpen] = useState(false);
@@ -270,6 +279,7 @@ function AddButtons({ addFiles }) {
     <div class="add">
       <button class="primary big" onClick=${() => (hasCamera ? setOpen(true) : pick(camera))}>📷 Take photo</button>
       <button class="big" onClick=${() => pick(files)}>Photos & files</button>
+      <button class="big" onClick=${addManual} title="No receipt? Enter it by hand and attach a payment receipt later">Enter manually</button>
       <input ref=${camera} type="file" accept="image/*" capture="environment" hidden onChange=${onPick} />
       <input ref=${files} type="file" accept="image/*,application/pdf" multiple hidden onChange=${onPick} />
     </div>
@@ -399,7 +409,7 @@ function Camera({ addFiles, close, fallback }) {
     </div>`;
 }
 
-function List({ receipts, queue, canAdd, addFiles }) {
+function List({ receipts, queue, canAdd, addFiles, addManual }) {
   const [filter, setFilter] = useState(localStorage.getItem('filter') || 'all');
   const [q, setQ] = useState('');
   const setF = (f) => { setFilter(f); localStorage.setItem('filter', f); };
@@ -421,7 +431,7 @@ function List({ receipts, queue, canAdd, addFiles }) {
 
   return html`
     <div class="list">
-      ${canAdd && html`<${AddButtons} addFiles=${addFiles} />`}
+      ${canAdd && html`<${AddButtons} addFiles=${addFiles} addManual=${addManual} />`}
       <div class="filters">
         <button class=${filter === 'all' ? 'chip on' : 'chip'} onClick=${() => setF('all')}>All (${receipts.length})</button>
         <button class=${filter === 'open' ? 'chip on' : 'chip'} onClick=${() => setF('open')}>Needs checking (${open.length})</button>
@@ -458,6 +468,7 @@ function Row({ r }) {
         ${money(r.total, r.currency || 'EUR')}
         ${r.currency && r.currency !== 'EUR' && fx != null && isNum(r.total) && html`<small>${money(r.total * fx)}</small>`}
       </span>
+      ${weakProof(r) && r.status !== 'processing' && html`<span class="badge st-weak">${r.doc_type === 'payment' ? 'Payment only' : 'No document'}</span>`}
       ${r.status !== 'done' && html`<${Badge} status=${r.status} />`}
     </a>`;
 }
@@ -482,18 +493,38 @@ function fromForm(f) {
   };
 }
 
-function Preview({ r }) {
+function Preview({ r, onAttach }) {
   const [url, setUrl] = useState(null);
   const [zoom, setZoom] = useState(false);
-  useEffect(() => { if (r.file_path) api.fileUrl(r.file_path).then(setUrl).catch(() => setUrl('')); }, [r.file_path]);
-  if (!r.file_path) return html`<div class="preview empty-preview">No photo</div>`;
+  const [busy, setBusy] = useState(false);
+  const input = useRef();
+  useEffect(() => { if (r.file_path) api.fileUrl(r.file_path).then(setUrl).catch(() => setUrl('')); }, [r.file_path, r.updated_at]);
+  const pickFile = async (e) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    setBusy(true);
+    try { await onAttach(f); } catch (err) { alert(err.message); } finally { setBusy(false); }
+  };
+  const attach = onAttach && html`
+    <input ref=${input} type="file" accept="image/*,application/pdf" hidden onChange=${pickFile} />`;
+  if (!r.file_path) return html`
+    <div class="preview empty-preview">
+      <div class="center">
+        <p>No document</p>
+        ${onAttach && html`<button class="primary" disabled=${busy} onClick=${() => input.current.click()}>${busy ? 'Uploading…' : 'Attach photo or PDF'}</button>
+          <p class="hint">For example the payment receipt or a bank screenshot.</p>`}
+        ${attach}
+      </div>
+    </div>`;
   if (url === null) return html`<div class="preview empty-preview">Loading photo…</div>`;
+  const replace = onAttach && html`<button class="open replace" disabled=${busy} onClick=${(e) => { e.stopPropagation(); input.current.click(); }}>${busy ? 'Uploading…' : 'Replace'}</button>${attach}`;
   if (r.file_type === 'application/pdf') return html`
-    <div class="preview"><iframe src=${url} title="Receipt PDF"></iframe><a class="open" href=${url} target="_blank" rel="noopener">Open PDF</a></div>`;
+    <div class="preview"><iframe src=${url} title="Receipt PDF"></iframe><a class="open" href=${url} target="_blank" rel="noopener">Open PDF</a>${replace}</div>`;
   return html`
     <div class="preview ${zoom ? 'zoom' : ''}" onClick=${() => setZoom(!zoom)}>
       <img src=${url} alt="Receipt photo" />
-      <a class="open" href=${url} target="_blank" rel="noopener" onClick=${(e) => e.stopPropagation()}>Full size</a>
+      <a class="open" href=${url} target="_blank" rel="noopener" onClick=${(e) => e.stopPropagation()}>Full size</a>${replace}
     </div>`;
 }
 
@@ -583,13 +614,19 @@ function Editor({ receipt, readOnly }) {
         <${Badge} status=${receipt.status} />
       </div>
       <div class="editor-body">
-        <${Preview} r=${receipt} />
+        <${Preview} r=${receipt} onAttach=${readOnly ? null : (f) => api.attachFile(receipt, f)} />
         <form class="card form" onSubmit=${(e) => { e.preventDefault(); save(); }}>
           ${receipt.status === 'processing' && html`<div class="note">Claude is reading this receipt. The fields fill in by themselves in a few seconds.</div>`}
           ${receipt.error && html`<div class="note bad">Reading failed: ${receipt.error}</div>`}
           ${receipt.issues?.length > 0 && html`<div class="note"><strong>Check:</strong><ul>${receipt.issues.map((i) => html`<li>${i}</li>`)}</ul></div>`}
 
           <fieldset disabled=${readOnly}>
+            <label>Document
+              <select value=${form.doc_type || 'receipt'} onChange=${(e) => set({ doc_type: e.target.value })}>
+                ${Object.entries(DOC_TYPES).map(([k, v]) => html`<option value=${k}>${v}</option>`)}
+              </select>
+            </label>
+            ${weakProof(form) && html`<p class="hint">${form.doc_type === 'payment' ? 'A payment receipt shows no VAT. Fill in the VAT by hand if you know it (for example from the menu or the shop), or choose No VAT.' : 'Fill in the fields by hand. Attach a payment receipt or bank screenshot if you have one.'} Your accountant decides whether VAT without a proper receipt can be deducted.</p>`}
             <div class="grid2">
               <label>Store<input value=${form.store || ''} onInput=${(e) => set({ store: e.target.value })} /></label>
               <label>Date<input type="date" value=${form.receipt_date || ''} onInput=${(e) => set({ receipt_date: e.target.value })} /></label>
@@ -692,9 +729,9 @@ function Quarter({ receipts, arg, owner }) {
   const step = (d) => { let yy = year, qq = quarter + d; if (qq < 1) { qq = 4; yy--; } if (qq > 4) { qq = 1; yy++; } go(`quarter/${yy}-${qq}`); };
   const meta = { title: `Q${quarter} ${year}`, owner, fileBase: `Receipts ${year}-Q${quarter}` };
 
-  const zip = async () => {
-    setBusy('Preparing…');
-    try { await downloadZip(inQ, meta, (n, t) => setBusy(`Photos ${n} of ${t}…`)); } catch (e) { alert(e.message); } finally { setBusy(''); }
+  const run = async (label, fn) => {
+    setBusy(label);
+    try { await fn(); } catch (e) { alert(e.message); } finally { setBusy(''); }
   };
 
   return html`
@@ -717,7 +754,7 @@ function Quarter({ receipts, arg, owner }) {
         <h2>Netherlands</h2>
         <section class="card">
           <${SummaryTable} groups=${s.home.groups} sum=${s.home} totalLabel="Total Netherlands" />
-          <p class="hint">Dutch VAT to deduct (input tax): <strong>${money(s.homeVat)}</strong></p>
+          <p class="hint">Dutch VAT to deduct (input tax): <strong>${money(s.homeVat)}</strong>${s.weakVat > 0 ? html`, of which <strong>${money(s.weakVat)}</strong> rests on a payment receipt or no document` : ''}</p>
         </section>`}
 
       ${s.foreign.groups.length > 0 && html`
@@ -735,9 +772,10 @@ function Quarter({ receipts, arg, owner }) {
       ${s.groups.length > 0 && html`<p class="hint">All amounts in EUR; foreign currencies at the ECB rate on the receipt date. ${inQ.length} receipts, ${money(s.total.gross)} in total.</p>`}
 
       <div class="actions no-print">
-        <button class="primary" disabled=${!inQ.length} onClick=${() => downloadCsv(inQ, meta)}>Download CSV</button>
-        <button disabled=${!inQ.length || !!busy} onClick=${zip}>${busy || 'Download ZIP with photos'}</button>
-        <button disabled=${!inQ.length} onClick=${() => print()}>Print / PDF</button>
+        <button class="primary" disabled=${!inQ.length || !!busy} onClick=${() => run('Excel…', () => downloadExcel(inQ, meta))}>Download Excel</button>
+        <button disabled=${!inQ.length || !!busy} onClick=${() => run('PDF…', () => downloadPdf(inQ, meta, (n, t) => setBusy(`PDF: photo ${n} of ${t}…`)))}>Download PDF</button>
+        <button disabled=${!inQ.length || !!busy} onClick=${() => run('ZIP…', () => downloadZip(inQ, meta, (n, t) => setBusy(`ZIP: photo ${n} of ${t}…`)))}>ZIP with photos</button>
+        ${busy && html`<span class="hint">${busy}</span>`}
       </div>
 
       ${s.groups.map((g) => html`
@@ -753,6 +791,7 @@ function Quarter({ receipts, arg, owner }) {
                     <td class="nowrap">${row.receipt.receipt_date}</td>
                     <td><a href=${`#/r/${row.receipt.id}`}>${row.receipt.store || '–'}</a>${row.receipt.description ? html`<small> · ${row.receipt.description}</small>` : ''}
                       ${row.receipt.currency !== 'EUR' ? html`<small> · ${money(row.gross_orig, row.receipt.currency)}</small>` : ''}
+                      ${weakProof(row.receipt) ? html` <span class="badge st-weak">${DOC_TYPES[row.receipt.doc_type]}</span>` : ''}
                       ${row.receipt.status !== 'done' ? html` <${Badge} status=${row.receipt.status} />` : ''}</td>
                     <td class="n">${money(row.net)}</td><td class="n">${money(row.vat)}</td><td class="n">${money(row.gross)}</td>
                   </tr>`)}
@@ -769,7 +808,6 @@ function Quarter({ receipts, arg, owner }) {
 function Settings({ user, viewers, sharedWithMe, reload }) {
   const [email, setEmail] = useState('');
   const [msg, setMsg] = useState('');
-  const [fmt, setFmt] = useState(getNumberFormat());
   const add = async (e) => {
     e.preventDefault();
     try { await api.addShare(email); setEmail(''); setMsg(''); reload(); } catch (err) { setMsg(err.message.includes('duplicate') ? 'Already shared with that address.' : err.message); }
@@ -807,12 +845,6 @@ function Settings({ user, viewers, sharedWithMe, reload }) {
           ${sharedWithMe.map((s) => html`<div class="row"><span class="what">${s.owner_email}</span></div>`)}
           <p class="hint">Switch accounts with the menu at the top.</p>
         </section>`}
-
-      <section class="card">
-        <h3>CSV format</h3>
-        <label class="radio"><input type="radio" name="fmt" checked=${fmt === 'nl'} onChange=${() => { setNumberFormat('nl'); setFmt('nl'); }} /> Dutch Excel: 1234,56 separated by ;</label>
-        <label class="radio"><input type="radio" name="fmt" checked=${fmt === 'us'} onChange=${() => { setNumberFormat('us'); setFmt('us'); }} /> US/UK Excel: 1234.56 separated by ,</label>
-      </section>
 
       <section class="card">
         <h3>Install on your devices</h3>

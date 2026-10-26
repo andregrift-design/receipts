@@ -8,6 +8,15 @@ export const CATEGORIES = [
   'Technology & Equipment', 'Software & Subscriptions', 'Professional Services', 'Education & Training', 'Other',
 ];
 
+// What the record is based on. Only receipts and invoices are proper proof for deducting VAT.
+export const DOC_TYPES = {
+  receipt: 'Receipt',
+  invoice: 'Invoice',
+  payment: 'Payment receipt only',
+  none: 'No document',
+};
+export const weakProof = (r) => r.doc_type === 'payment' || r.doc_type === 'none';
+
 export const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'SEK', 'NOK', 'DKK', 'PLN', 'CZK', 'HUF', 'JPY', 'CAD', 'AUD'];
 
 export const COUNTRIES = {
@@ -177,6 +186,9 @@ export function summarize(receipts) {
     rows,
     total: sumOf(list),
     homeVat: round2(home.reduce((s, g) => s + g.vat, 0)),
+    // Dutch VAT that rests on a payment receipt or no document at all.
+    weakVat: round2(home.flatMap((g) => g.rows).filter((row) => weakProof(row.receipt)).reduce((s, row) => s + (row.vat || 0), 0)),
+    weakCount: receipts.filter(weakProof).length,
     foreignVat: round2(foreign.reduce((s, g) => s + g.vat, 0)),
     open: receipts.filter((r) => r.status !== 'done'),
   };

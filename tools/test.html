@@ -1,14 +1,16 @@
 <!doctype html><meta charset="utf-8"><title>Receipts tests</title>
+<script type="importmap">{ "imports": { "/src/api.js": "/tools/mock-api.js" } }</script>
 <pre id="out">running…</pre>
 <script type="module">
 import { problems, summarize, splitGross, quarterRange, quarterLabel, vatLabel } from '../src/vat.js';
-import { buildCsv, numbered } from '../src/export.js';
+import { downloadExcel, downloadPdf, numbered } from '../src/export.js';
+import * as XLSX from 'https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs';
 const out = []; let fail = 0;
 const eq = (name, a, b) => { const ok = JSON.stringify(a) === JSON.stringify(b); if (!ok) fail++; out.push(`${ok ? 'PASS' : 'FAIL'} ${name}${ok ? '' : `\n   got ${JSON.stringify(a)}\n   want ${JSON.stringify(b)}`}`); };
-const base = { id: '', status: 'done', currency: 'EUR', vat_country: 'NL', created_at: '2026-01-01T00:00:00Z', file_path: 'u/x.jpg' };
+const base = { id: '', status: 'done', doc_type: 'receipt', currency: 'EUR', vat_country: 'NL', created_at: '2026-01-01T00:00:00Z', file_path: 'u/x.png', file_type: 'image/png' };
 const rs = [
   { ...base, id: 'a', receipt_date: '2026-07-03', store: 'Albert Heijn', total: 31.30, vat_lines: [{ rate: 9, net: 20, vat: 1.8 }, { rate: 21, net: 7.85, vat: 1.65 }] },
-  { ...base, id: 'b', receipt_date: '2026-08-10', store: 'Shell', total: 121, vat_lines: [{ rate: 21, net: 100, vat: 21 }] },
+  { ...base, id: 'b', doc_type: 'payment', receipt_date: '2026-08-10', store: 'Shell', total: 121, vat_lines: [{ rate: 21, net: 100, vat: 21 }] },
   { ...base, id: 'c', receipt_date: '2026-09-01', store: 'Hotel Berlin', total: 119, vat_country: 'DE', vat_lines: [{ rate: 19, net: 100, vat: 19 }] },
   { ...base, id: 'd', receipt_date: '2026-09-02', store: 'NYC cab', total: 50, currency: 'USD', fx_rate: 0.9, vat_country: 'US', vat_lines: [{ rate: null, net: 50, vat: 0 }] },
   { ...base, id: 'e', receipt_date: '2026-09-03', store: 'Parking', total: 5, status: 'review', vat_lines: [] },
@@ -32,9 +34,32 @@ eq('split none', splitGross(10, null), { net: 10, vat: 0 });
 eq('Q3 range', quarterRange(2026, 3), { start: '2026-07-01', end: '2026-09-30' });
 eq('Q1 leap', quarterRange(2028, 1).end, '2028-03-31');
 eq('label', quarterLabel(2026, 4), 'Q4 2026 (Oct–Dec)');
-eq('numbering', numbered(rs).map((n) => n.file), ['001_2026-07-03_Albert-Heijn.jpg', '002_2026-08-10_Shell.jpg', '003_2026-09-01_Hotel-Berlin.jpg', '004_2026-09-02_NYC-cab.jpg', '005_2026-09-03_Parking.jpg']);
-localStorage.setItem('numberFormat', 'nl');
-const csv = buildCsv(rs, { title: 'Q3 2026', owner: 'me@example.com' });
-out.push('\n--- CSV (nl) ---\n' + csv);
+eq('numbering', numbered(rs).map((n) => n.file), ['001_2026-07-03_Albert-Heijn.png', '002_2026-08-10_Shell.png', '003_2026-09-01_Hotel-Berlin.png', '004_2026-09-02_NYC-cab.png', '005_2026-09-03_Parking.png']);
+eq('weak VAT', [s.weakVat, s.weakCount], [21, 1]);
+// Capture downloads instead of saving them.
+const files = {};
+const orig = URL.createObjectURL;
+URL.createObjectURL = (blob) => { files.last = blob; return orig(blob); };
+HTMLAnchorElement.prototype.click = function () { files[this.download] = files.last; };
+const meta = { title: 'Q3 2026', owner: 'me@example.com', fileBase: 'Receipts 2026-Q3' };
+await downloadExcel(rs, meta);
+const wb = XLSX.read(await files['Receipts 2026-Q3.xlsx'].arrayBuffer(), { cellDates: true });
+eq('excel sheets', wb.SheetNames, ['Summary', 'Receipts']);
+const sum = XLSX.utils.sheet_to_json(wb.Sheets.Summary, { header: 1 });
+eq('excel NL total', sum.find((r) => r[0] === 'Total Netherlands'), ['Total Netherlands', 3, 127.85, 24.45, 157.3]);
+eq('excel weak VAT', sum.find((r) => String(r[0]).includes('payment receipt'))?.[3], 21);
+eq('excel foreign total', sum.find((r) => r[0] === 'Total foreign'), ['Total foreign', 2, 145, 19, 164]);
+const det = XLSX.utils.sheet_to_json(wb.Sheets.Receipts);
+eq('excel rows', det.length, 6);
+eq('excel row 3', [det[2].Store, det[2].Document, det[2]['VAT EUR'], det[2]['VAT rate']], ['Shell', 'Payment receipt only', 21, 0.21]);
+eq('excel date is a date', det[0].Date instanceof Date, true);
+let progress = 0;
+await downloadPdf(rs, meta, (n) => { progress = n; });
+const pdf = files['Receipts 2026-Q3.pdf'];
+const pdfText = await pdf.text();
+eq('pdf made', pdf.size > 5000 && pdfText.startsWith('%PDF'), true);
+eq('pdf photo pages', progress, 5);
+out.push(`\nPDF ${Math.round(pdf.size / 1024)} KB, pages: ${(pdfText.match(/\/Type \/Page\b/g) || []).length}`);
+window.lastPdf = pdf;
 document.getElementById('out').textContent = `${fail ? fail + ' FAILED' : 'ALL PASS'}\n\n` + out.join('\n');
 </script>

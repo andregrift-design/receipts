@@ -227,3 +227,8 @@ tfoot td { font-weight: 700; border-bottom: 0; }
 .quarter > h2 { margin-top: 18px; }
 .grid-addr { display: grid; grid-template-columns: 2fr 1fr; gap: 12px; }
 @media (max-width: 480px) { .grid-addr { grid-template-columns: 1fr; } }
+.add { flex-wrap: wrap; }
+.add .big { min-width: 140px; }
+.st-weak { background: var(--bad-soft); color: var(--bad); }
+.preview .replace { left: 8px; right: auto; float: left; margin: -40px 0 8px 8px; }
+.empty-preview .center { padding: 24px; }
