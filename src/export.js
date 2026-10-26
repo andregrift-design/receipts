@@ -113,9 +113,11 @@ async function buildExcel(d, meta) {
   const conv = meta.conv;
   const aoa = [[`VH5 ${meta.title}`], [meta.owner || ''], [meta.filed ? `Filed with the CPA on ${fmtDate(meta.filed.filed_at.slice(0, 10))}` : 'Open period'], []];
   const money2 = []; // rows with amounts in columns 2..5
+  const bold = [0]; // header rows on the Summary sheet
   for (const b of summaryBlocks(d, cur)) {
-    if (b.section) { aoa.push([b.section]); continue; }
-    if (b.title) aoa.push([b.title]);
+    if (b.section) { bold.push(aoa.length); aoa.push([b.section]); continue; }
+    if (b.title) { bold.push(aoa.length); aoa.push([b.title]); }
+    bold.push(aoa.length);
     aoa.push(b.head);
     for (const r of b.rows) { money2.push(aoa.length); aoa.push(r.group ? r.cells : r); }
     for (const r of b.foot || []) { money2.push(aoa.length); aoa.push(r); }
@@ -157,7 +159,32 @@ async function buildExcel(d, meta) {
   XLSX.utils.book_append_sheet(wb, det, 'Expenses');
   if (d.inc.lines.length) XLSX.utils.book_append_sheet(wb, incomeSheet(XLSX, d, conv, cur), 'Income');
   const data = XLSX.write(wb, { bookType: 'xlsx', type: 'array', cellDates: true });
-  return new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const out = await boldRows(data, [bold, [0], [0]]);
+  return new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+
+// SheetJS (community) writes no cell styles, so bold headers are added to the file afterwards:
+// one bold font and one cell style in styles.xml, then that style on the header cells of each sheet.
+async function boldRows(data, perSheet) {
+  const { default: JSZip } = await import(JSZIP_URL);
+  const zip = await JSZip.loadAsync(data);
+  let styles = await zip.file('xl/styles.xml').async('string');
+  const fontCount = Number(styles.match(/<fonts count="(\d+)"/)[1]);
+  styles = styles.replace(/<fonts count="\d+"([^>]*)>([\s\S]*?)<\/fonts>/, (m, attrs, body) =>
+    `<fonts count="${fontCount + 1}"${attrs}>${body}<font><b/><sz val="12"/><color theme="1"/><name val="Calibri"/><family val="2"/><scheme val="minor"/></font></fonts>`);
+  const xfCount = Number(styles.match(/<cellXfs count="(\d+)"/)[1]);
+  styles = styles.replace(/<cellXfs count="\d+">([\s\S]*?)<\/cellXfs>/, (m, body) =>
+    `<cellXfs count="${xfCount + 1}">${body}<xf numFmtId="0" fontId="${fontCount}" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs>`);
+  zip.file('xl/styles.xml', styles);
+  for (let i = 0; i < perSheet.length; i++) {
+    const f = zip.file(`xl/worksheets/sheet${i + 1}.xml`);
+    if (!f) continue;
+    const rows = new Set(perSheet[i].map((r) => r + 1));
+    const xml = (await f.async('string')).replace(/<c r="([A-Z]+)(\d+)"([^>]*?)(\/?)>/g, (m, col, row, attrs, close) =>
+      (rows.has(Number(row)) ? `<c r="${col}${row}"${attrs.replace(/\s*s="\d+"/, '')} s="${xfCount}"${close}>` : m));
+    zip.file(`xl/worksheets/sheet${i + 1}.xml`, xml);
+  }
+  return zip.generateAsync({ type: 'uint8array' });
 }
 
 function fmtCols(XLSX, ws, n, f) {
