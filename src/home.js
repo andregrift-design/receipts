@@ -1,6 +1,6 @@
 // Home: where new receipts and statements are going, the year so far compared with last year, and what needs attention.
 import { html, useState, useMemo } from './ui.js';
-import { money, fmtNum, periodLabel, bookingPeriod, periodOf, yearFigures, duplicateOf, quarterLabel } from './vat.js';
+import { money, fmtNum, periodLabel, bookingPeriod, periodOf, filingDue, yearFigures, duplicateOf, quarterLabel } from './vat.js';
 import { go } from './kit.js';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -94,8 +94,9 @@ export function HomePage({ ctx }) {
 
   const current = bookingPeriod(d, ctx.filed);
   const [cy, cq] = [Number(current.slice(0, 4)), Number(current.slice(6))];
-  const prev = cq === 1 ? `${cy - 1}-Q4` : `${cy}-Q${cq - 1}`;
-  const prevOpen = !ctx.filed.has(prev) && [...ctx.receipts, ...ctx.statements].some((x) => x.period === prev);
+  const prev = filingDue(d);
+  const prevOpen = prev && !ctx.filed.has(prev) && [...ctx.receipts, ...ctx.statements].some((x) => x.period === prev);
+  const dueBy = new Date(Date.UTC(year, Number(d.slice(5, 7)), 0)).toLocaleDateString('en-US', { day: 'numeric', month: 'long', timeZone: 'UTC' });
   const inCurrent = { r: ctx.receipts.filter((x) => x.period === current).length, s: ctx.statements.filter((x) => x.period === current).length };
 
   const todo = [
@@ -129,7 +130,7 @@ export function HomePage({ ctx }) {
       <a class="open-quarter" href=${`#/overview/${prev.slice(0, 4)}-${prev.slice(6)}`}>
         <span class="oq-icon" aria-hidden="true">◷</span>
         <span class="oq-text"><strong>${periodLabel(prev)} is still open</strong>
-          <small>Check it and file it with the CPA when it’s ready.</small></span>
+          <small>The VAT return is due by ${dueBy}. Check it and file it with the CPA when it’s ready.</small></span>
         <span class="oq-go">Review ${periodLabel(prev)} ›</span>
       </a>`}
 

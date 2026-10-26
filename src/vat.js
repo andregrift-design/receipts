@@ -415,6 +415,15 @@ export function agencyOverview(statements) {
 // ---------- periods, corrections, duplicates ----------
 
 export const periodOf = (iso) => (iso ? `${iso.slice(0, 4)}-Q${Math.floor((Number(iso.slice(5, 7)) - 1) / 3) + 1}` : null);
+
+// The quarter whose VAT return is due soon: only in the last 14 days of the month after it ends (e.g. 18-31 Oct for Q3).
+export function filingDue(iso) {
+  const y = Number(iso.slice(0, 4)), m = Number(iso.slice(5, 7)), day = Number(iso.slice(8, 10));
+  if ((m - 1) % 3 !== 0) return null;
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  if (day <= last - 14) return null;
+  return m === 1 ? `${y - 1}-Q4` : `${y}-Q${(m - 1) / 3}`;
+}
 export const periodLabel = (p) => (p ? `${p.slice(5)} ${p.slice(0, 4)}` : 'No quarter');
 export const nextPeriod = (p) => (p.endsWith('4') ? `${Number(p.slice(0, 4)) + 1}-Q1` : `${p.slice(0, 6)}${Number(p.slice(6)) + 1}`);
 // The quarter a record belongs to by its own date: receipt date for expenses, import date for statements.
