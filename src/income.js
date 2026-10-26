@@ -3,7 +3,7 @@ import { html, useState, useEffect, useRef, useMemo } from './ui.js';
 import * as api from './api.js';
 import {
   CURRENCIES, COUNTRIES, HOME_COUNTRY, JOB_KINDS, money, fmtDate, isNum, round2, countryName, parseNum, fxFor,
-  lineTotal, statementAsReceipt, statementProblems, agencyOverview, periodLabel, bookingPeriod, periodOf, duplicateOf,
+  lineTotal, statementAsReceipt, statementProblems, agencyOverview, periodLabel, bookingPeriod, periodOf, duplicateOf, vatOff, followVat, fmtNum,
 } from './vat.js';
 import { go, Badge, PeriodBadges, Preview, NumInput, toField, Modal, Cols } from './kit.js';
 import { QueuedRow } from './expenses.js';
@@ -314,11 +314,18 @@ export function StatementEditor({ statement, ctx }) {
 
               <p class="subhead">Fee</p>
               <div class="grid g4">
-                <label>Fee<${NumInput} label="Fee" value=${l.fee} onInput=${(v) => setLine(i, { fee: v })} /></label>
+                <label>Fee<${NumInput} label="Fee" value=${l.fee} onInput=${(v) => { const o = value.lines[i]; const vat = followVat(o.fee, o.vat, parseNum(v), o.vat_rate); setLine(i, { fee: v, ...(vat !== undefined ? { vat: toField(vat) } : {}) }); }} /></label>
                 <label>VAT %<${NumInput} label="VAT %" decimals=${0} value=${l.vat_rate} onInput=${(v) => setLine(i, { vat_rate: v })} onBlur=${() => vatFill(i)} /></label>
                 <label>VAT<${NumInput} label="VAT" value=${l.vat} onInput=${(v) => setLine(i, { vat: v })} /></label>
                 <label>Expenses paid back<${NumInput} label="Expenses" value=${l.expenses} onInput=${(v) => setLine(i, { expenses: v })} /></label>
               </div>
+              ${(() => {
+                const v = value.lines[i];
+                const e = v ? vatOff(v.fee, v.vat_rate ?? 0, v.vat ?? 0) : null;
+                return e === null ? '' : html`<div class="vat-warn">${fmtNum(v.vat_rate ?? 0, 0)}% of ${money(v.fee, form.currency)} is <strong>${money(e, form.currency)}</strong>, not ${money(v.vat, form.currency)}.
+                  ${!readOnly && html`<button type="button" class="link" onClick=${() => setLine(i, { vat: toField(e) })}>Use ${money(e, form.currency)}</button>`}
+                  <small>If the statement really shows this VAT, check the VAT %.</small></div>`;
+              })()}
 
               <p class="subhead">Deductions</p>
               <div class="grid g3">
@@ -352,7 +359,7 @@ export function StatementEditor({ statement, ctx }) {
           <div class="form-section"><label>Notes<textarea rows="2" value=${form.notes || ''} onInput=${(e) => set({ notes: e.target.value })}></textarea></label></div>
         </fieldset>
         ${!readOnly && html`
-          <div class=${todo.length ? 'note' : 'note good'}>${todo.length ? `Missing: ${todo.join(', ')}.` : 'Complete.'}</div>
+          <div class=${todo.length ? 'note' : 'note good'}>${todo.length ? `To fix: ${todo.join(', ')}.` : 'Complete.'}</div>
           ${msg && html`<p class="msg">${msg}</p>`}
           <div class="actions">
             <button class="primary" disabled=${!!busy}>${busy === 'save' ? 'Saving…' : todo.length ? 'Save' : 'Save as done'}</button>

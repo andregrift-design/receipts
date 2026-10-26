@@ -119,6 +119,25 @@ export function linesSum(lines) {
   return round2((lines || []).reduce((s, l) => s + (Number(l.net) || 0) + (Number(l.vat) || 0), 0));
 }
 
+// VAT that belongs to a net amount at a rate (null when it can't be computed).
+export const expectedVat = (net, rate) => (isNum(net) && isNum(rate) ? round2((Number(net) * Number(rate)) / 100) : null);
+
+// The expected VAT when the entered VAT doesn't match the rate, else null. Receipts round per item, so a few
+// cents (or 0.2% on large amounts) of difference is accepted.
+export function vatOff(net, rate, vat) {
+  const e = expectedVat(net, rate);
+  if (e === null || !isNum(vat)) return null;
+  return Math.abs(Number(vat) - e) > 0.05 + Math.abs(e) * 0.002 ? e : null;
+}
+
+// When the net amount changes: the VAT follows if it was empty or matched the old amount (so it was not typed off the receipt).
+export function followVat(oldNet, oldVat, newNet, rate) {
+  if (!isNum(rate) || !isNum(newNet)) return undefined;
+  const was = expectedVat(oldNet, rate);
+  const auto = !isNum(oldVat) || Number(oldVat) === 0 || (was !== null && Math.abs(Number(oldVat) - was) < 0.005);
+  return auto ? expectedVat(newNet, rate) : undefined;
+}
+
 // What still needs to be filled in or fixed before the receipt counts as done.
 export function problems(r) {
   const out = [];
@@ -132,6 +151,7 @@ export function problems(r) {
   if (!lines.length) out.push('VAT');
   else if (lines.some((l) => !isNum(l.net) || (l.rate !== null && !isNum(l.vat)))) out.push('VAT amounts');
   else if (isNum(r.total) && Math.abs(linesSum(lines) - Number(r.total)) > 0.02 * lines.length) out.push('VAT lines don’t add up to the total');
+  if (lines.some((l) => l.rate !== null && vatOff(l.net, l.rate, l.vat) !== null)) out.push('VAT doesn’t match the rate');
   return out;
 }
 
@@ -289,6 +309,7 @@ export function statementProblems(st) {
   if (!lines.length) out.push('job lines');
   if (lines.some((l) => !isNum(l.fee))) out.push('fee on every line');
   if (lines.some((l) => (l.deductions || []).some((d) => !isNum(d.amount)))) out.push('deduction amounts');
+  if (lines.some((l) => vatOff(l.fee, l.vat_rate ?? 0, l.vat ?? 0) !== null)) out.push('VAT doesn’t match the VAT %');
   const sum = round2(lines.reduce((s, l) => s + lineTotal(l), 0));
   if (lines.length && isNum(st.total_paid) && Math.abs(sum - Number(st.total_paid)) > 0.02 * lines.length) out.push('lines don’t add up to the amount paid');
   return out;

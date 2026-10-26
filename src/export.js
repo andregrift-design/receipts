@@ -145,6 +145,8 @@ async function buildExcel(d, meta) {
       row.net, row.vat, row.gross, r.currency, r.currency === cur ? null : row.gross_orig, rate ? rate.rate : null, dt(rate?.date), status(r),
       r.corrects || r._reversal ? 'Correction' : naturalPeriod(r) && naturalPeriod(r) !== r.period ? `Late: belongs to ${periodLabel(naturalPeriod(r))}` : '', r.notes, n?.file || ''];
   });
+  // The photo file name only means something next to the photos, in the ZIP. A plain Excel download has no images or file references.
+  if (!meta.zip) { header.pop(); rows.forEach((r) => r.pop()); }
   const det = XLSX.utils.aoa_to_sheet([header, ...rows], { cellDates: true });
   fmtCols(XLSX, det, rows.length, { date: [1, 18], pct: [11], money: [12, 13, 14, 16], rate: [17] });
   det['!cols'] = [6, 12, 9, 26, 30, 14, 30, 22, 20, 26, 20, 8, 12, 12, 12, 9, 12, 11, 11, 14, 22, 24, 40].map((wch) => ({ wch }));
@@ -219,10 +221,18 @@ export async function downloadPdf(d, meta, onProgress) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
-  const m = (v) => (v === null || v === undefined || v === '' ? '' : typeof v === 'number' ? money(v, cur) : v);
-  const black = [17, 17, 17];
-  const base = { theme: 'grid', headStyles: { fillColor: black, textColor: 255 }, styles: { fontSize: 8.5, cellPadding: 1.6, lineColor: [226, 226, 222], lineWidth: 0.1 },
-    footStyles: { fillColor: [240, 240, 237], textColor: 17, fontStyle: 'bold' }, margin: { left: 14, right: 14 } };
+  // The PDF's built-in font draws € tight against the first digit, so it gets a space.
+  const sp = (t) => (typeof t === 'string' ? t.replace(/€(?=[-\d])/g, '€ ') : t);
+  const pm = (v, c = cur) => sp(money(v, c));
+  const m = (v) => (v === null || v === undefined || v === '' ? '' : typeof v === 'number' ? pm(v) : sp(v));
+  // Printer-friendly: light header fill, dark-gray text, no solid black areas.
+  const ink = [45, 40, 35], soft = [110, 102, 94], lineC = [214, 207, 198];
+  const base = { theme: 'grid', headStyles: { fillColor: [238, 233, 226], textColor: ink, fontStyle: 'bold', lineColor: lineC, lineWidth: 0.1 },
+    styles: { fontSize: 8.5, cellPadding: 1.6, textColor: ink, lineColor: lineC, lineWidth: 0.1, valign: 'top' },
+    footStyles: { fillColor: [248, 245, 240], textColor: ink, fontStyle: 'bold', lineColor: lineC, lineWidth: 0.1 }, margin: { left: 14, right: 14 } };
+  // Numbers right-aligned in every row, header and total alike.
+  const rightCols = (cols) => ({ didParseCell: (c) => { if (cols.includes(c.column.index)) c.cell.styles.halign = 'right'; } });
+  doc.setTextColor(...ink); doc.setDrawColor(...lineC);
   let y = 18;
   const ensure = (h) => { if (y + h > H - 16) { doc.addPage(); y = 18; } };
   const after = () => { y = doc.lastAutoTable.finalY + 6; };
@@ -232,72 +242,73 @@ export async function downloadPdf(d, meta, onProgress) {
   doc.text(`${meta.owner || ''}  ·  ${meta.filed ? `filed with the CPA on ${fmtDate(meta.filed.filed_at.slice(0, 10))}` : 'open period'}  ·  created ${fmtDate(new Date().toISOString().slice(0, 10))}  ·  amounts in ${cur}`, 14, y + 6);
   y += 14;
 
-  // Every summary table uses the same column widths so they line up.
-  const numW = 26, cntW = 18;
+  // Every summary table uses the same grid: amount columns of equal width from the right edge, so they line up.
+  const numW = 27, cntW = 22, full = W - 28;
   for (const b of summaryBlocks(d, cur)) {
     if (b.section) {
       ensure(20);
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.text(b.section, 14, y + 4);
-      doc.setLineWidth(0.5); doc.line(14, y + 6, W - 14, y + 6); doc.setFont('helvetica', 'normal');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(...ink); doc.text(b.section, 14, y + 4);
+      doc.setDrawColor(...soft); doc.setLineWidth(0.4); doc.line(14, y + 6, W - 14, y + 6); doc.setDrawColor(...lineC); doc.setFont('helvetica', 'normal');
       y += 11;
       continue;
     }
     ensure(18);
     if (b.title) { doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.text(b.title, 14, y + 3); doc.setFont('helvetica', 'normal'); y += 5; }
     const cols = b.head.length;
-    const columnStyles = { 1: { halign: 'right', cellWidth: b.head[1] ? cntW : 4 } };
-    for (let c = 2; c < cols; c++) columnStyles[c] = { halign: 'right', cellWidth: numW };
-    const fmt = (r) => r.map((v, i) => (i === 0 ? v : i === 1 ? (v ?? '') : m(v)));
-    autoTable(doc, { ...base, startY: y, head: [b.head], columnStyles,
-      body: b.rows.length ? b.rows.map((r) => (r.group ? { _group: true, cells: fmt(r.cells) } : fmt(r))).map((r) => (r._group ? r.cells.map((c) => ({ content: c, styles: { fontStyle: 'bold', fillColor: [246, 246, 243] } })) : r))
-        : [[{ content: 'None', colSpan: cols, styles: { textColor: 140 } }]],
+    const amounts = cols - 2;
+    const columnStyles = { 0: { cellWidth: full - cntW - amounts * numW }, 1: { cellWidth: cntW } };
+    for (let c = 2; c < cols; c++) columnStyles[c] = { cellWidth: numW };
+    const fmt = (r) => r.map((v, i) => (i === 0 ? sp(v) : i === 1 ? (v ?? '') : m(v)));
+    autoTable(doc, { ...base, ...rightCols([...Array(cols).keys()].slice(1)), startY: y, head: [b.head], columnStyles,
+      body: b.rows.length ? b.rows.map((r) => (r.group ? { _group: true, cells: fmt(r.cells) } : fmt(r))).map((r) => (r._group ? r.cells.map((c) => ({ content: c, styles: { fontStyle: 'bold', fillColor: [250, 248, 244] } })) : r))
+        : [[{ content: 'None', styles: { textColor: soft } }, ...Array(cols - 1).fill('')]],
       foot: b.foot ? b.foot.map(fmt) : undefined, showFoot: 'lastPage' });
     after();
-    if (b.note) { doc.setFontSize(8); doc.setTextColor(110); const t = doc.splitTextToSize(b.note, W - 28); ensure(t.length * 4); doc.text(t, 14, y); y += t.length * 3.6 + 3; doc.setTextColor(0); }
+    if (b.note) { doc.setFontSize(8); doc.setTextColor(...soft); const t = doc.splitTextToSize(sp(b.note), W - 28); ensure(t.length * 4); doc.text(t, 14, y); y += t.length * 3.6 + 3; doc.setTextColor(...ink); }
   }
-  doc.setFontSize(8); doc.setTextColor(110);
+  doc.setFontSize(8); doc.setTextColor(...soft);
   const note = doc.splitTextToSize(`${conversionNote(cur)} Expenses count by receipt date, income by the import date entered for each statement.`, W - 28);
-  ensure(note.length * 4); doc.text(note, 14, y); y += note.length * 3.6 + 6; doc.setTextColor(0);
+  ensure(note.length * 4); doc.text(note, 14, y); y += note.length * 3.6 + 6; doc.setTextColor(...ink);
 
   // Details
   const nums = new Map(numbered(d.rec.filter((r) => !r._reversal)).map((n) => [n.r.id, n.no]));
   doc.addPage(); y = 18;
   doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.text('5. Details: receipts', 14, y); doc.setFont('helvetica', 'normal'); y += 4;
-  autoTable(doc, { ...base, startY: y, styles: { ...base.styles, fontSize: 7.5 },
+  autoTable(doc, { ...base, ...rightCols([0, 6, 7, 8]), startY: y, styles: { ...base.styles, fontSize: 7.5 },
     head: [['No.', 'Date', 'Store / description', 'Country', 'Category', 'VAT category', 'Net', 'VAT', 'Gross']],
     body: [...d.s.rows].sort((a, b) => (nums.get(a.receipt.id) || 999) - (nums.get(b.receipt.id) || 999)).map((row) => {
       const r = row.receipt;
       const rate = r.currency === cur ? null : conv.rate(r);
-      const fx = rate ? `\n${money(row.gross_orig, r.currency)} at ${rate.rate.toFixed(4)}${rate.date ? ` (${rate.date})` : ''}` : '';
+      const fx = rate ? `\n${pm(row.gross_orig, r.currency)} at ${rate.rate.toFixed(4)}${rate.date ? ` (${rate.date})` : ''}` : '';
       return [String(nums.get(r.id) || ''), r.receipt_date || '', tag(r) + [r.store, r.description].filter(Boolean).join(' - ') + (weakProof(r) ? ` (${DOC_TYPES[r.doc_type]})` : '') + fx,
         countryName(r.vat_country || 'NL'), r.category || '', vatLabel(row.key), m(row.net), m(row.vat), m(row.gross)];
     }),
-    columnStyles: { 0: { cellWidth: 8, halign: 'right' }, 1: { cellWidth: 17 }, 6: { halign: 'right', cellWidth: 20 }, 7: { halign: 'right', cellWidth: 18 }, 8: { halign: 'right', cellWidth: 20 } } });
+    columnStyles: { 0: { cellWidth: 8 }, 1: { cellWidth: 17 }, 3: { cellWidth: 18 }, 4: { cellWidth: 22 }, 5: { cellWidth: 26 }, 6: { cellWidth: 20 }, 7: { cellWidth: 17 }, 8: { cellWidth: 20 } } });
   after();
   if (d.inc.lines.length) {
     ensure(20);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.text('Details: jobs (agency statements)', 14, y + 4); doc.setFont('helvetica', 'normal'); y += 8;
-    autoTable(doc, { ...base, startY: y, styles: { ...base.styles, fontSize: 7.5 },
+    autoTable(doc, { ...base, ...rightCols([5, 6, 7, 8]), startY: y, styles: { ...base.styles, fontSize: 7.5 },
       head: [['Imported', 'Agency', 'Client / job', 'Job date', 'Type', 'Fee', 'VAT', 'Deductions', 'Paid']],
       body: [...d.inc.lines].sort((a, b) => (a.statement.booking_date || '').localeCompare(b.statement.booking_date || '')).map(({ statement: st, line: l, fee, vat, deductions, paid }) => {
         const rate = st.currency === cur ? null : conv.rate(statementAsReceipt(st));
-        const fx = rate ? `\n${money(lineTotal(l), st.currency)} at ${rate.rate.toFixed(4)}${rate.date ? ` (${rate.date})` : ''}` : '';
+        const fx = rate ? `\n${pm(lineTotal(l), st.currency)} at ${rate.rate.toFixed(4)}${rate.date ? ` (${rate.date})` : ''}` : '';
         return [st.booking_date || '', `${tag(st)}${st.agency || ''}\n${countryName(st.agency_country)}`, [l.client, l.description].filter(Boolean).join(' - ') + fx,
           l.job_date || '', JOB_KINDS[l.kind] || '', m(fee), m(vat), m(neg(deductions)), m(paid)];
       }),
-      columnStyles: { 0: { cellWidth: 17 }, 3: { cellWidth: 17 }, 5: { halign: 'right', cellWidth: 19 }, 6: { halign: 'right', cellWidth: 17 }, 7: { halign: 'right', cellWidth: 19 }, 8: { halign: 'right', cellWidth: 19 } } });
+      columnStyles: { 0: { cellWidth: 17 }, 1: { cellWidth: 26 }, 3: { cellWidth: 17 }, 4: { cellWidth: 14 }, 5: { cellWidth: 20 }, 6: { cellWidth: 17 }, 7: { cellWidth: 19 }, 8: { cellWidth: 20 } } });
     after();
   }
 
-  // One page per receipt photo, numbered like the table.
-  const photos = numbered(d.rec.filter((r) => !r._reversal)).filter((n) => n.r.file_path);
+  // One page per receipt photo, numbered like the table. Only when asked for (meta.photos).
+  const photos = meta.photos ? numbered(d.rec.filter((r) => !r._reversal)).filter((n) => n.r.file_path) : [];
   let done = 0;
   for (const n of photos) {
     onProgress?.(++done, photos.length);
     doc.addPage();
     const r = n.r;
     doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-    doc.text(`No. ${n.no}  ·  ${r.receipt_date ? fmtDate(r.receipt_date) : 'no date'}  ·  ${r.store || r.description || ''}  ·  ${money(r.total, r.currency || 'EUR')}`, 14, 14, { maxWidth: W - 28 });
+    doc.text(`No. ${n.no}  ·  ${r.receipt_date ? fmtDate(r.receipt_date) : 'no date'}  ·  ${r.store || r.description || ''}  ·  ${pm(r.total, r.currency || 'EUR')}`, 14, 14, { maxWidth: W - 28 });
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
     if (weakProof(r)) doc.text(DOC_TYPES[r.doc_type], 14, 19);
     if (r.file_type === 'application/pdf') { doc.text('This receipt is a PDF: see the ZIP export or the app.', 14, 30); continue; }
@@ -314,9 +325,8 @@ export async function downloadPdf(d, meta, onProgress) {
 
   const pages = doc.getNumberOfPages();
   for (let i = 1; i <= pages; i++) {
-    doc.setPage(i); doc.setFontSize(8); doc.setTextColor(120);
+    doc.setPage(i); doc.setFontSize(8); doc.setTextColor(...soft);
     doc.text(`VH5 ${meta.title}  ·  page ${i} of ${pages}`, W / 2, H - 8, { align: 'center' });
-    doc.setTextColor(0);
   }
   download(doc.output('blob'), `${meta.fileBase}.pdf`);
 }
@@ -326,7 +336,7 @@ export async function downloadPdf(d, meta, onProgress) {
 export async function downloadZip(d, meta, onProgress) {
   const { default: JSZip } = await import(JSZIP_URL);
   const zip = new JSZip();
-  zip.file(`${meta.fileBase}.xlsx`, await buildExcel(d, meta));
+  zip.file(`${meta.fileBase}.xlsx`, await buildExcel(d, { ...meta, zip: true }));
   const list = numbered(d.rec.filter((r) => !r._reversal)).filter((n) => n.file);
   const sts = d.sts.filter((st) => !st._reversal && st.file_path);
   let done = 0;

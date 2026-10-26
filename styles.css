@@ -368,3 +368,6 @@ label.check.annual-pick input { margin-top: 3px; }
 label.check.annual-pick strong { color: var(--ink); }
 .badge.st-annual { background: var(--info-soft); color: var(--info); }
 .section-title h2 { white-space: nowrap; }
+.vat-warn { margin: -2px 0 10px; padding: 8px 10px; border-radius: 10px; background: var(--warn-soft); color: var(--ink); font-size: 13px; }
+.vat-warn span { display: inline-flex; gap: 12px; margin-left: 4px; }
+.vat-warn small { display: block; color: var(--muted); margin-top: 2px; }

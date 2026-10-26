@@ -3,7 +3,7 @@ import { html, useState, useEffect, useRef } from './ui.js';
 import * as api from './api.js';
 import {
   CATEGORIES, CURRENCIES, COUNTRIES, RATES, HOME_COUNTRY, DOC_TYPES, money, fmtDate, problems, splitGross, linesSum,
-  fxFor, isNum, round2, countryName, weakProof, parseNum, periodLabel, periodOf, bookingPeriod,
+  fxFor, isNum, round2, countryName, weakProof, parseNum, periodLabel, periodOf, bookingPeriod, expectedVat, vatOff, followVat, fmtNum,
 } from './vat.js';
 import { go, Badge, PeriodBadges, Preview, NumInput, toField } from './kit.js';
 
@@ -316,13 +316,25 @@ export function ReceiptEditor({ receipt, ctx }) {
     const list = [...new Set([...rates, ...(current === null || current === undefined ? [] : [Number(current)])])];
     return html`${list.map((r) => html`<option value=${r}>${r}%</option>`)}<option value="none">No VAT</option><option value="other">Other…</option>`;
   };
+  // A new rate keeps what was paid on this line (net + VAT) and splits it again; without amounts yet, VAT follows the net.
+  const withRate = (i, rate) => {
+    const l = value.vat_lines[i];
+    if (rate === null) return setLine(i, { rate, vat: '', ...(isNum(l.net) && isNum(l.vat) ? { net: toField(round2(l.net + l.vat)) } : {}) });
+    if (isNum(l.net) && isNum(l.vat) && l.net + l.vat !== 0) { const sp = splitGross(round2(l.net + l.vat), rate); return setLine(i, { rate, net: toField(sp.net), vat: toField(sp.vat) }); }
+    setLine(i, { rate, ...(isNum(l.net) ? { vat: toField(expectedVat(l.net, rate)) } : {}) });
+  };
   const onRate = (i, v) => {
     if (v === 'other') {
       const typed = parseNum(prompt('VAT rate in %'));
-      if (isNum(typed)) setLine(i, { rate: typed });
+      if (isNum(typed)) withRate(i, typed);
       return;
     }
-    setLine(i, { rate: v === 'none' ? null : Number(v), ...(v === 'none' ? { vat: '' } : {}) });
+    withRate(i, v === 'none' ? null : Number(v));
+  };
+  const onNet = (i, v) => {
+    const l = value.vat_lines[i];
+    const vat = l.rate === null ? undefined : followVat(l.net, l.vat, parseNum(v), l.rate);
+    setLine(i, { net: v, ...(vat !== undefined ? { vat: toField(vat) } : {}) });
   };
 
   return html`
@@ -402,13 +414,24 @@ export function ReceiptEditor({ receipt, ctx }) {
             ${form.vat_lines.map((l, i) => html`
               <div class="vat-line">
                 <select value=${l.rate === null ? 'none' : l.rate} onChange=${(e) => onRate(i, e.target.value)}>${rateOptions(l.rate)}</select>
-                <${NumInput} label="Net" value=${l.net} onInput=${(v) => setLine(i, { net: v })} />
+                <${NumInput} label="Net" value=${l.net} onInput=${(v) => onNet(i, v)} />
                 <${NumInput} label="VAT" disabled=${l.rate === null} value=${l.rate === null ? '0.00' : l.vat} onInput=${(v) => setLine(i, { vat: v })} />
                 <span class="line-actions">
                   <button type="button" class="link" title="Fill from the total" onClick=${() => splitTotal(i)}>Fill</button>
                   <button type="button" class="link danger" title="Remove" onClick=${() => set({ vat_lines: form.vat_lines.filter((_, j) => j !== i) })}>✕</button>
                 </span>
-              </div>`)}
+              </div>
+              ${(() => {
+                const v = value.vat_lines[i];
+                const e = v && v.rate !== null ? vatOff(v.net, v.rate, v.vat) : null;
+                if (e === null) return '';
+                const gross = round2(v.net + v.vat), sp = splitGross(gross, v.rate);
+                return html`<div class="vat-warn">${fmtNum(v.rate, v.rate % 1 ? 1 : 0)}% of ${money(v.net, form.currency)} is <strong>${money(e, form.currency)}</strong>, not ${money(v.vat, form.currency)}.
+                  ${!readOnly && html`<span>
+                    <button type="button" class="link" onClick=${() => setLine(i, { vat: toField(e) })}>Use ${money(e, form.currency)} VAT</button>
+                    <button type="button" class="link" onClick=${() => setLine(i, { net: toField(sp.net), vat: toField(sp.vat) })}>Split ${money(gross, form.currency)} at ${fmtNum(v.rate, v.rate % 1 ? 1 : 0)}%</button></span>`}
+                  <small>Check the receipt: if it really shows this VAT, the rate may be wrong.</small></div>`;
+              })()}`)}
             ${!form.vat_lines.length && html`<p class="hint">No VAT entered yet.</p>`}
             <div class="sumline">
               <button type="button" class="link" onClick=${addLine}>+ ${form.vat_lines.length ? 'Add another rate' : 'Add VAT'}</button>
@@ -425,7 +448,7 @@ export function ReceiptEditor({ receipt, ctx }) {
         ${jobs.length > 0 && html`<div class="note info">Attached to ${jobs.map(({ st, l }, i) => html`${i ? ', ' : ''}<a href=${`#/s/${st.id}`}>${l.client || 'job'} (${st.agency})</a>`)}.</div>`}
 
         ${!readOnly && html`
-          <div class=${todo.length ? 'note' : 'note good'}>${todo.length ? `Missing: ${todo.join(', ')}.` : 'Complete.'}</div>
+          <div class=${todo.length ? 'note' : 'note good'}>${todo.length ? `To fix: ${todo.join(', ')}.` : 'Complete.'}</div>
           ${badNumbers && html`<div class="note bad">One of the amounts isn’t a number.</div>`}
           ${msg && html`<p class="msg">${msg}</p>`}
           <div class="actions">

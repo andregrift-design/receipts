@@ -43,6 +43,8 @@ export function OverviewPage({ ctx, arg }) {
   const [usd, setUsd] = useState(null);
   const [busy, setBusy] = useState('');
   const [filing, setFiling] = useState(false);
+  const [photos, setPhotos] = useState(localStorage.getItem('pdfPhotos') === '1');
+  const togglePhotos = (on) => { setPhotos(on); localStorage.setItem('pdfPhotos', on ? '1' : '0'); };
   const period = quarter ? `${year}-Q${quarter}` : null;
   const filed = period && ctx.filed.has(period);
   const filedInfo = period && ctx.periods.find((p) => p.period === period);
@@ -137,7 +139,8 @@ export function OverviewPage({ ctx, arg }) {
 
       <div class="actions">
         <button class="primary" disabled=${!ready} onClick=${() => run('Excel…', () => downloadExcel(d, meta))}>Download Excel${cur === 'USD' ? ' (USD)' : ''}</button>
-        <button disabled=${!ready} onClick=${() => run('PDF…', () => downloadPdf(d, meta, (n, t) => setBusy(`PDF: page ${n} of ${t}…`)))}>Download PDF${cur === 'USD' ? ' (USD)' : ''}</button>
+        <button disabled=${!ready} onClick=${() => run('PDF…', () => downloadPdf(d, { ...meta, photos }, (n, t) => setBusy(`PDF: photo ${n} of ${t}…`)))}>Download PDF${cur === 'USD' ? ' (USD)' : ''}</button>
+        <label class="check"><input type="checkbox" checked=${photos} onChange=${(e) => togglePhotos(e.target.checked)} />Receipt photos in the PDF</label>
         <button disabled=${!ready} onClick=${() => run('ZIP…', () => downloadZip(d, meta, (n, t) => setBusy(`ZIP: file ${n} of ${t}…`)))}>ZIP with documents</button>
         ${busy && html`<span class="hint">${busy}</span>`}
       </div>

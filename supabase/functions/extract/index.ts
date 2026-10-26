@@ -216,6 +216,11 @@ async function readStatement(supabase: any, userId: string, id: string) {
   const sum = round2(lines.reduce((s: number, l: any) => s + lineTotal(l), 0));
   const adds = x.total_paid != null && lines.length > 0 && Math.abs(sum - x.total_paid) <= 0.02 * lines.length;
   if (x.total_paid != null && lines.length && !adds) issues.push(`Lines add up to ${sum.toFixed(2)}, amount paid is ${Number(x.total_paid).toFixed(2)}.`);
+  for (const l of lines) {
+    if (l.fee == null) continue;
+    const e = round2((l.fee * (l.vat_rate || 0)) / 100);
+    if (Math.abs(l.vat - e) > 0.05 + Math.abs(e) * 0.002) issues.push(`VAT ${l.vat.toFixed(2)} doesn't match ${l.vat_rate}% of ${l.fee.toFixed(2)} (expected ${e.toFixed(2)}).`);
+  }
 
   const date = isDate(x.statement_date) ? x.statement_date : null;
   const currency = /^[A-Z]{3}$/.test(x.currency || '') ? x.currency : 'EUR';
@@ -279,6 +284,12 @@ Deno.serve(async (req) => {
     const adds = x.total != null && lines.length > 0 && lines.every((l: any) => l.net != null && l.vat != null)
       && Math.abs(sum - x.total) <= 0.02 * Math.max(1, lines.length);
     if (x.total != null && lines.length && !adds) issues.push(`VAT lines add up to ${sum.toFixed(2)}, total is ${Number(x.total).toFixed(2)}.`);
+    // VAT must match its rate (a few cents of rounding allowed), same rule as the app.
+    for (const l of lines) {
+      if (l.rate == null || l.net == null || l.vat == null) continue;
+      const e = round2((l.net * l.rate) / 100);
+      if (Math.abs(l.vat - e) > 0.05 + Math.abs(e) * 0.002) issues.push(`VAT ${l.vat.toFixed(2)} doesn't match ${l.rate}% of ${l.net.toFixed(2)} (expected ${e.toFixed(2)}).`);
+    }
 
     const complete = x.document_type !== 'other' && date && x.total != null && (x.store || x.description) && adds;
     const fx = date ? await fxRate(currency, date) : null;
