@@ -117,7 +117,6 @@ export function HomePage({ ctx }) {
         <p class="now-period">${quarterLabel(cy, cq)}</p>
         <p class="hint">New receipts and statements dated today go into this quarter. So far: ${inCurrent.r} receipt${inCurrent.r === 1 ? '' : 's'}, ${inCurrent.s} statement${inCurrent.s === 1 ? '' : 's'}.
           ${current !== periodOf(d) ? ` (${periodLabel(periodOf(d))} is already filed.)` : ''}</p>
-        ${prevOpen && html`<p class="hint">${periodLabel(prev)} is still open: <a href=${`#/overview/${prev.slice(0, 4)}-${prev.slice(6)}`}>check it and file it with the CPA</a> when it is ready.</p>`}
       </div>
       ${ctx.mine && html`<div class="actions">
         <button class="primary" onClick=${() => go('expenses')}>Add receipts</button>
@@ -125,6 +124,14 @@ export function HomePage({ ctx }) {
         <button onClick=${() => go(`overview/${cy}-${cq}`)}>Overview ${periodLabel(current)}</button>
       </div>`}
     </section>
+
+    ${prevOpen && html`
+      <a class="open-quarter" href=${`#/overview/${prev.slice(0, 4)}-${prev.slice(6)}`}>
+        <span class="oq-icon" aria-hidden="true">◷</span>
+        <span class="oq-text"><strong>${periodLabel(prev)} is still open</strong>
+          <small>Check it and file it with the CPA when it’s ready.</small></span>
+        <span class="oq-go">Review ${periodLabel(prev)} ›</span>
+      </a>`}
 
     <div class="section-title"><h2>${year} so far</h2><small>1 Jan – ${new Date().toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}, compared with the same period in ${year - 1} · EUR</small></div>
     <div class="tiles four">
