@@ -14,13 +14,15 @@ const rs = [
   { ...base, id: 'e', receipt_date: '2026-09-03', store: 'Parking', total: 5, status: 'review', vat_lines: [] },
 ];
 const s = summarize(rs);
-eq('groups order', s.groups.map((g) => g.key), ['NL:21', 'NL:9', 'none', 'DE:19', 'unknown']);
+eq('groups order', s.groups.map((g) => g.key), ['NL:21', 'NL:9', 'NL:unknown', 'DE:19', 'US:none']);
 eq('21% group', [s.groups[0].count, s.groups[0].net, s.groups[0].vat, s.groups[0].gross], [2, 107.85, 22.65, 130.5]);
-eq('USD converted', [s.groups[2].net, s.groups[2].gross], [45, 45]);
+eq('USD converted', [s.groups[4].net, s.groups[4].gross], [45, 45]);
+eq('home vs foreign', [s.home.count, s.home.gross, s.foreign.count, s.foreign.vat, s.foreignVat], [3, 157.3, 2, 19, 19]);
+eq('per country', s.foreign.countries.map((c) => c.name), ['Germany', 'United States']);
 eq('home VAT', s.homeVat, 24.45);
 eq('total gross', s.total.gross, 31.3 + 121 + 119 + 45 + 5);
 eq('open', s.open.map((r) => r.id), ['e']);
-eq('labels', ['NL:21', 'NL:9', 'none', 'DE:19'].map(vatLabel), ['21% VAT (high rate)', '9% VAT (low rate)', 'No VAT / exempt', 'Foreign VAT: Germany 19%']);
+eq('labels', ['NL:21', 'NL:9', 'NL:none', 'DE:19', 'US:none'].map(vatLabel), ['21% VAT (high rate)', '9% VAT (low rate)', 'No VAT / exempt', 'Germany: 19% VAT', 'United States: no VAT']);
 eq('problems complete', problems(rs[0]), []);
 eq('problems missing', problems({ currency: 'USD', vat_lines: [] }), ['date', 'store or description', 'amount', 'exchange rate', 'VAT']);
 eq('problems sum', problems({ ...rs[1], total: 130 }), ['VAT lines don’t add up to the total']);

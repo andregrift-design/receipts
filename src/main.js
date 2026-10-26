@@ -2,11 +2,11 @@ import { html, render, useState, useEffect, useRef, useMemo } from './ui.js';
 import * as api from './api.js';
 import {
   CATEGORIES, CURRENCIES, COUNTRIES, RATES, HOME_COUNTRY, money, fmtDate, problems, splitGross, linesSum,
-  fxFor, isNum, round2, quarterOf, quarterRange, quarterLabel, summarize, vatLabel,
+  fxFor, isNum, round2, quarterOf, quarterRange, quarterLabel, summarize, vatLabel, isHome, countryName,
 } from './vat.js';
 import { downloadCsv, downloadZip, numbered, getNumberFormat, setNumberFormat } from './export.js';
 
-const VERSION = '1.3';
+const VERSION = '1.4';
 
 // ---------- helpers ----------
 
@@ -452,7 +452,7 @@ function Row({ r }) {
     <a class="row" href=${`#/r/${r.id}`}>
       <span class="what">
         <strong>${r.store || r.description || (r.status === 'processing' ? 'Reading receipt…' : 'Unknown store')}</strong>
-        <small>${[r.receipt_date && fmtDate(r.receipt_date), r.store && r.description, r.category].filter(Boolean).join(' · ')}</small>
+        <small>${[r.receipt_date && fmtDate(r.receipt_date), r.vat_country && r.vat_country !== HOME_COUNTRY && countryName(r.vat_country), r.store && r.description, r.category].filter(Boolean).join(' · ')}</small>
       </span>
       <span class="amount">
         ${money(r.total, r.currency || 'EUR')}
@@ -594,6 +594,14 @@ function Editor({ receipt, readOnly }) {
               <label>Store<input value=${form.store || ''} onInput=${(e) => set({ store: e.target.value })} /></label>
               <label>Date<input type="date" value=${form.receipt_date || ''} onInput=${(e) => set({ receipt_date: e.target.value })} /></label>
             </div>
+            <div class="grid-addr">
+              <label>Address<input value=${form.store_address || ''} placeholder="Street, postcode, city" onInput=${(e) => set({ store_address: e.target.value })} /></label>
+              <label>Country
+                <select value=${form.vat_country} onChange=${(e) => set({ vat_country: e.target.value })}>
+                  ${[...new Set([...Object.keys(COUNTRIES), form.vat_country])].map((k) => html`<option value=${k}>${countryName(k)}</option>`)}
+                </select>
+              </label>
+            </div>
             <label>Description<input value=${form.description || ''} placeholder="What was it for?" onInput=${(e) => set({ description: e.target.value })} /></label>
             <div class="grid3">
               <label>Total paid
@@ -620,15 +628,8 @@ function Editor({ receipt, readOnly }) {
               </div>`}
 
             <div class="vat">
-              <div class="vat-head">
-                <h3>VAT</h3>
-                <label class="inline">Country
-                  <select value=${form.vat_country} onChange=${(e) => set({ vat_country: e.target.value })}>
-                    ${Object.entries(COUNTRIES).map(([k, v]) => html`<option value=${k}>${v}</option>`)}
-                  </select>
-                </label>
-              </div>
-              ${form.vat_country !== HOME_COUNTRY && html`<p class="hint">Foreign VAT can’t be deducted on your Dutch VAT return. It’s listed separately in the overview.</p>`}
+              <div class="vat-head"><h3>VAT</h3>${form.vat_country !== HOME_COUNTRY && html`<span class="badge st-review">Foreign: ${countryName(form.vat_country)}</span>`}</div>
+              ${form.vat_country !== HOME_COUNTRY && html`<p class="hint">Foreign VAT can’t be deducted on your Dutch VAT return. It’s listed separately in the overview, per country.</p>`}
               ${form.vat_lines.length > 0 && html`
                 <div class="vat-lines">
                   <div class="vat-line labels"><span>Rate</span><span>Net</span><span>VAT</span><span></span></div>
@@ -668,6 +669,16 @@ function Editor({ receipt, readOnly }) {
 
 // ---------- quarter overview ----------
 
+function SummaryTable({ groups, sum, totalLabel }) {
+  const dash = (g, v) => (g.key.endsWith(':unknown') ? '–' : money(v));
+  return html`
+    <table class="summary">
+      <thead><tr><th>VAT category</th><th class="n">Receipts</th><th class="n">Net</th><th class="n">VAT</th><th class="n">Gross</th></tr></thead>
+      <tbody>${groups.map((g) => html`<tr><td>${g.label}</td><td class="n">${g.count}</td><td class="n">${dash(g, g.net)}</td><td class="n">${dash(g, g.vat)}</td><td class="n">${money(g.gross)}</td></tr>`)}</tbody>
+      <tfoot><tr><td>${totalLabel}</td><td class="n">${sum.count}</td><td class="n">${money(sum.net)}</td><td class="n">${money(sum.vat)}</td><td class="n">${money(sum.gross)}</td></tr></tfoot>
+    </table>`;
+}
+
 function Quarter({ receipts, arg, owner }) {
   const def = defaultQuarter();
   const [y, q] = arg ? arg.split('-').map(Number) : [def.year, def.q];
@@ -700,17 +711,28 @@ function Quarter({ receipts, arg, owner }) {
           ${s.open.map((r, i) => html`${i ? ', ' : ' '}<a href=${`#/r/${r.id}`}>${r.store || r.description || fmtDate(r.receipt_date)}</a>`)}.</div>`}
       ${undated.length > 0 && html`<div class="note">${undated.length} receipt${undated.length > 1 ? 's have' : ' has'} no date and ${undated.length > 1 ? 'are' : 'is'} not in any quarter. <a href="#/">Fix in the list</a>.</div>`}
 
-      <section class="card">
-        <table class="summary">
-          <thead><tr><th>VAT category</th><th class="n">Receipts</th><th class="n">Net</th><th class="n">VAT</th><th class="n">Gross</th></tr></thead>
-          <tbody>
-            ${s.groups.map((g) => html`<tr><td>${g.label}</td><td class="n">${g.count}</td><td class="n">${g.key === 'unknown' ? '–' : money(g.net)}</td><td class="n">${g.key === 'unknown' ? '–' : money(g.vat)}</td><td class="n">${money(g.gross)}</td></tr>`)}
-            ${!s.groups.length && html`<tr><td colspan="5" class="hint">No receipts in this quarter.</td></tr>`}
-          </tbody>
-          <tfoot><tr><td>Total</td><td class="n">${inQ.length}</td><td class="n">${money(s.total.net)}</td><td class="n">${money(s.total.vat)}</td><td class="n">${money(s.total.gross)}</td></tr></tfoot>
-        </table>
-        <p class="hint">Dutch VAT on these receipts (input tax): <strong>${money(s.homeVat)}</strong>. All amounts in EUR; foreign currencies at the ECB rate on the receipt date.</p>
-      </section>
+      ${!s.groups.length && html`<section class="card"><p class="hint">No receipts in this quarter.</p></section>`}
+
+      ${s.home.groups.length > 0 && html`
+        <h2>Netherlands</h2>
+        <section class="card">
+          <${SummaryTable} groups=${s.home.groups} sum=${s.home} totalLabel="Total Netherlands" />
+          <p class="hint">Dutch VAT to deduct (input tax): <strong>${money(s.homeVat)}</strong></p>
+        </section>`}
+
+      ${s.foreign.groups.length > 0 && html`
+        <h2>Foreign VAT</h2>
+        <section class="card">
+          <${SummaryTable} groups=${s.foreign.groups} sum=${s.foreign} totalLabel="Total foreign" />
+          ${s.foreign.countries.length > 1 && html`
+            <table class="summary per-country">
+              <thead><tr><th>Per country</th><th class="n">Receipts</th><th class="n">Net</th><th class="n">VAT</th><th class="n">Gross</th></tr></thead>
+              <tbody>${s.foreign.countries.map((c) => html`<tr><td>${c.name}</td><td class="n">${c.count}</td><td class="n">${money(c.net)}</td><td class="n">${money(c.vat)}</td><td class="n">${money(c.gross)}</td></tr>`)}</tbody>
+            </table>`}
+          <p class="hint">Foreign VAT: <strong>${money(s.foreignVat)}</strong>. Not deductible on your Dutch VAT return; within the EU it can be reclaimed from that country (EU VAT refund).</p>
+        </section>`}
+
+      ${s.groups.length > 0 && html`<p class="hint">All amounts in EUR; foreign currencies at the ECB rate on the receipt date. ${inQ.length} receipts, ${money(s.total.gross)} in total.</p>`}
 
       <div class="actions no-print">
         <button class="primary" disabled=${!inQ.length} onClick=${() => downloadCsv(inQ, meta)}>Download CSV</button>

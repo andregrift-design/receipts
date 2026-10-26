@@ -1,5 +1,5 @@
 // Quarter exports for the accountant: CSV (summary + detail) and a ZIP with the CSV and all photos.
-import { summarize, vatLabel, fmtDate } from './vat.js';
+import { summarize, vatLabel, fmtDate, countryName } from './vat.js';
 import { fileBlob } from './api.js';
 
 const JSZIP = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm';
@@ -31,19 +31,35 @@ export function buildCsv(receipts, { title, owner }) {
   const nums = new Map(numbered(receipts).map((n) => [n.r.id, n]));
   const out = [];
   out.push(line([`Receipts ${title}`]), line([owner || '']), '');
-  out.push(line(['Summary per VAT category (EUR)', '', '', '', '']));
-  out.push(line(['VAT category', 'Receipts', 'Net', 'VAT', 'Gross']));
-  for (const g of s.groups) out.push(line([g.label, String(g.count), g.net, g.vat, g.gross]));
-  out.push(line(['Total', String(receipts.length), s.total.net, s.total.vat, s.total.gross]));
+  const block = (title, part, totalLabel) => {
+    out.push(line([title]));
+    out.push(line(['VAT category', 'Receipts', 'Net', 'VAT', 'Gross']));
+    for (const g of part.groups) {
+      const unknown = g.key.endsWith(':unknown');
+      out.push(line([g.label, String(g.count), unknown ? null : g.net, unknown ? null : g.vat, g.gross]));
+    }
+    out.push(line([totalLabel, String(part.count), part.net, part.vat, part.gross]));
+    out.push('');
+  };
+  if (s.home.groups.length) block('Netherlands (EUR)', s.home, 'Total Netherlands');
+  if (s.foreign.groups.length) {
+    block('Foreign VAT, not on the Dutch VAT return (EUR)', s.foreign, 'Total foreign');
+    out.push(line(['Foreign VAT per country', 'Receipts', 'Net', 'VAT', 'Gross']));
+    for (const c of s.foreign.countries) out.push(line([c.name, String(c.count), c.net, c.vat, c.gross]));
+    out.push('');
+  }
+  out.push(line(['Dutch VAT to deduct (input tax)', '', '', s.homeVat]));
+  out.push(line(['Foreign VAT', '', '', s.foreignVat]));
+  out.push(line(['All receipts', String(receipts.length), s.total.net, s.total.vat, s.total.gross]));
   if (s.open.length) out.push(line([`${s.open.length} receipt(s) not checked yet, see Status below`]));
   out.push('');
-  out.push(line(['No.', 'Date', 'Store', 'Description', 'Category', 'VAT category', 'VAT rate', 'Net EUR', 'VAT EUR', 'Gross EUR',
+  out.push(line(['No.', 'Date', 'Store', 'Address', 'Country', 'Description', 'Category', 'VAT category', 'VAT rate', 'Net EUR', 'VAT EUR', 'Gross EUR',
     'Currency', 'Gross in currency', 'Exchange rate', 'Status', 'Notes', 'Photo file']));
   const rows = [...s.rows].sort((a, b) => nums.get(a.receipt.id).no - nums.get(b.receipt.id).no);
   for (const row of rows) {
     const r = row.receipt;
     const n = nums.get(r.id);
-    out.push(line([String(n.no), r.receipt_date || '', r.store, r.description, r.category, vatLabel(row.key),
+    out.push(line([String(n.no), r.receipt_date || '', r.store, r.store_address, countryName(r.vat_country || 'NL'), r.description, r.category, vatLabel(row.key),
       row.rate === null || row.rate === undefined ? '' : `${row.rate}%`, row.net, row.vat, row.gross,
       r.currency, r.currency === 'EUR' ? null : (row.gross_orig ?? null), r.currency === 'EUR' ? '' : String(r.fx_rate ?? '').replace('.', fmt === 'nl' ? ',' : '.'),
       r.status === 'done' ? 'Checked' : 'Needs checking', r.notes, n.file]));

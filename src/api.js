@@ -38,7 +38,7 @@ export function watchReceipts(ownerId, onChange) {
 
 export async function saveReceipt(r) {
   const fields = {
-    store: r.store || null, description: r.description || null, category: r.category || null,
+    store: r.store || null, store_address: r.store_address || null, description: r.description || null, category: r.category || null,
     receipt_date: r.receipt_date || null, currency: r.currency || 'EUR',
     total: r.total === '' || r.total == null ? null : Number(r.total),
     vat_country: r.vat_country || 'NL',

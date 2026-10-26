@@ -223,3 +223,7 @@ tfoot td { font-weight: 700; border-bottom: 0; }
   border: 4px solid #000; box-shadow: 0 0 0 3px #fff;
 }
 .shutter:active { transform: scale(.94); }
+.per-country { margin-top: 14px; }
+.quarter > h2 { margin-top: 18px; }
+.grid-addr { display: grid; grid-template-columns: 2fr 1fr; gap: 12px; }
+@media (max-width: 480px) { .grid-addr { grid-template-columns: 1fr; } }

@@ -11,12 +11,13 @@ create table if not exists public.receipts (
   status       text        not null default 'processing'
                check (status in ('processing', 'review', 'done', 'error')),
   store        text,
+  store_address text,                     -- as printed on the receipt; basis for the country
   description  text,
   category     text,
   receipt_date date,
   currency     text        not null default 'EUR',
   total        numeric(12,2),              -- amount paid, VAT included, in the receipt currency
-  vat_country  text        not null default 'NL',
+  vat_country  text        not null default 'NL',  -- country of the store; foreign VAT is reported separately
   vat_lines    jsonb       not null default '[]',  -- [{rate: 21 | 9 | 0 | null (no VAT), net, vat}]
   fx_rate      numeric(14,6),              -- EUR for 1 unit of currency (ECB, receipt date)
   notes        text,
@@ -26,6 +27,9 @@ create table if not exists public.receipts (
   created_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now()
 );
+
+-- Added later (safe to run again)
+alter table public.receipts add column if not exists store_address text;
 
 create index if not exists receipts_user_date on public.receipts (user_id, receipt_date);
 

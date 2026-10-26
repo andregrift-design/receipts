@@ -43,16 +43,17 @@ const str = { anyOf: [{ type: 'string' }, { type: 'null' }] };
 const SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['is_receipt', 'store', 'description', 'category', 'date', 'currency', 'total', 'vat_country', 'vat_lines', 'issues'],
+  required: ['is_receipt', 'store', 'store_address', 'description', 'category', 'date', 'currency', 'total', 'vat_country', 'vat_lines', 'issues'],
   properties: {
     is_receipt: { type: 'boolean', description: 'False when the image is not a receipt or invoice.' },
     store: { ...str, description: 'Name of the shop, restaurant or supplier as printed.' },
+    store_address: { ...str, description: 'Address of the store as printed: street, postcode, city, country if shown.' },
     description: { ...str, description: 'What was bought, in a few words of English, e.g. "Lunch, 2 people" or "Diesel 42.3 L".' },
     category: { anyOf: [{ type: 'string', enum: CATEGORIES }, { type: 'null' }], description: 'Expense category; see the list in the instructions.' },
     date: { ...str, description: 'Purchase date as YYYY-MM-DD.' },
     currency: { ...str, description: 'ISO 4217 code, e.g. EUR, USD, GBP.' },
     total: { ...num, description: 'Total amount paid, VAT included. Positive number; negative only for a refund.' },
-    vat_country: { ...str, description: 'ISO 3166-1 alpha-2 country whose VAT is charged, usually where the store is.' },
+    vat_country: { ...str, description: 'ISO 3166-1 alpha-2 country of the store, from its address (see instructions). This is also the country whose VAT is charged.' },
     vat_lines: {
       type: 'array',
       description: 'One line per VAT rate on the receipt. Use rate null for amounts without VAT (exempt, not taxed). Empty if VAT cannot be read.',
@@ -81,6 +82,7 @@ Dutch terms: BTW = VAT, "excl." = net, "incl." = gross, "hoog" usually 21%, "laa
 If the receipt shows only VAT totals per rate, derive net = gross - VAT for that rate. If it shows only the total and one rate, compute net and VAT from it, and note that you computed it.
 If VAT is not shown at all, leave vat_lines empty and add an issue.
 Amounts are numbers with a dot as decimal separator. Dates: receipts from the Netherlands and Europe are day-month-year.
+Country: determine it from the store's address. Use, in this order: a country name; the postcode format (Dutch 1234 AB; Belgian 4 digits with a Belgian city; German 5 digits; French 5 digits; UK like SW1A 1AA); the phone prefix (+31, +32, +49, +33, +44); the VAT number prefix (NL...B01, BE0..., DE..., FR..., GB...); city names; the language and currency. If no address is printed, use the other clues and say in issues that the country was guessed. Online orders: the seller's country, unless the receipt charges Dutch VAT (21% BTW from a Dutch VAT number), then NL.
 Pick the category that fits best:
 ${Object.entries(CATEGORY_EXAMPLES).map(([k, v]) => `- ${k}: ${v}`).join('\n')}`;
 
@@ -169,7 +171,7 @@ Deno.serve(async (req) => {
 
     const update = {
       status: complete && (currency === 'EUR' || fx != null) && !issues.length ? 'done' : 'review',
-      store: x.store, description: x.description, category: x.category,
+      store: x.store, store_address: x.store_address, description: x.description, category: x.category,
       receipt_date: date, currency, total: x.total != null ? round2(x.total) : null,
       vat_country: /^[A-Z]{2}$/.test(x.vat_country || '') ? x.vat_country : row.vat_country,
       vat_lines: lines, fx_rate: fx, issues, extraction: x, error: null,
