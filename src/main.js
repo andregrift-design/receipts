@@ -6,7 +6,7 @@ import {
 } from './vat.js';
 import { downloadCsv, downloadZip, numbered, getNumberFormat, setNumberFormat } from './export.js';
 
-const VERSION = '1.0';
+const VERSION = '1.1';
 
 // ---------- helpers ----------
 
@@ -258,17 +258,113 @@ function Main({ user }) {
 
 // ---------- list ----------
 
+const hasCamera = !!navigator.mediaDevices?.getUserMedia;
+
 function AddButtons({ addFiles }) {
   const camera = useRef();
   const files = useRef();
+  const [open, setOpen] = useState(false);
   const pick = (ref) => ref.current.click();
   const onPick = (e) => { addFiles(e.target.files); e.target.value = ''; };
   return html`
     <div class="add">
-      <button class="primary big" onClick=${() => pick(camera)}>📷 Take photo</button>
-      <button class="big" onClick=${() => pick(files)}>Upload files</button>
+      <button class="primary big" onClick=${() => (hasCamera ? setOpen(true) : pick(camera))}>📷 Take photo</button>
+      <button class="big" onClick=${() => pick(files)}>Photos & files</button>
       <input ref=${camera} type="file" accept="image/*" capture="environment" hidden onChange=${onPick} />
       <input ref=${files} type="file" accept="image/*,application/pdf" multiple hidden onChange=${onPick} />
+    </div>
+    ${open && html`<${Camera} addFiles=${addFiles} close=${() => setOpen(false)}
+      fallback=${(which) => { setOpen(false); pick(which === 'camera' ? camera : files); }} />`}`;
+}
+
+// Viewfinder inside the app (getUserMedia). Several receipts in a row; falls back to the
+// phone's own camera or photo picker when access is blocked or no picture comes through.
+function Camera({ addFiles, close, fallback }) {
+  const video = useRef();
+  const stream = useRef(null);
+  const [state, setState] = useState('starting'); // starting | live | error
+  const [error, setError] = useState('');
+  const [taken, setTaken] = useState(0);
+  const [flash, setFlash] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer;
+    (async () => {
+      try {
+        const s = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 2560 }, height: { ideal: 1920 } },
+        });
+        if (cancelled) return s.getTracks().forEach((t) => t.stop());
+        stream.current = s;
+        const v = video.current;
+        v.srcObject = s;
+        await v.play().catch(() => {});
+        // Some phones hand over a stream that never shows a picture; don't leave a black screen.
+        timer = setTimeout(() => {
+          if (!cancelled && !v.videoWidth) {
+            setError('The camera didn’t send a picture. Another app may be using it.');
+            setState('error');
+          }
+        }, 4000);
+        v.onloadedmetadata = () => { if (!cancelled && v.videoWidth) setState('live'); };
+        if (v.videoWidth) setState('live');
+      } catch (err) {
+        if (cancelled) return;
+        const blocked = err?.name === 'NotAllowedError' || err?.name === 'SecurityError';
+        setError(blocked
+          ? 'Camera access is blocked for this site. On iPhone/iPad: tap aA in the address bar → Website Settings → Camera → Allow, then try again. Or check Settings → Apps → Safari → Camera.'
+          : `The camera couldn’t start (${err?.name || err}).`);
+        setState('error');
+      }
+    })();
+    const onKey = (e) => e.key === 'Escape' && close();
+    addEventListener('keydown', onKey);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      removeEventListener('keydown', onKey);
+      stream.current?.getTracks().forEach((t) => t.stop());
+    };
+  }, []);
+
+  const shoot = () => {
+    const v = video.current;
+    if (!v?.videoWidth) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = v.videoWidth;
+    canvas.height = v.videoHeight;
+    canvas.getContext('2d').drawImage(v, 0, 0);
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      addFiles([new File([blob], `receipt-${Date.now()}.jpg`, { type: 'image/jpeg' })]);
+      setTaken((n) => n + 1);
+    }, 'image/jpeg', 0.92);
+    setFlash(true);
+    setTimeout(() => setFlash(false), 150);
+  };
+
+  return html`
+    <div class="camera" role="dialog" aria-label="Camera">
+      <video ref=${video} autoplay playsinline muted></video>
+      ${flash && html`<div class="camera-flash"></div>`}
+      ${state === 'starting' && html`<p class="camera-msg">Starting camera…</p>`}
+      ${state === 'error' && html`
+        <div class="camera-msg card">
+          <p>${error}</p>
+          <div class="actions">
+            <button class="primary" onClick=${() => fallback('camera')}>Use the phone’s camera</button>
+            <button onClick=${() => fallback('files')}>Choose from photos</button>
+            <button onClick=${close}>Cancel</button>
+          </div>
+        </div>`}
+      ${state === 'live' && html`<div class="camera-guide"></div>`}
+      <div class="camera-bar">
+        <button class="camera-done" onClick=${close}>${taken ? 'Done' : 'Cancel'}</button>
+        <button class="shutter" disabled=${state !== 'live'} onClick=${shoot} aria-label="Take photo"></button>
+        <span class="camera-count">${taken ? `${taken} added` : ''}</span>
+      </div>
     </div>`;
 }
 

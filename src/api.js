@@ -163,17 +163,20 @@ let flushing = null;
 export function flushOutbox() {
   if (flushing) return flushing;
   flushing = (async () => {
-    const items = await queued();
-    for (const item of items) {
-      if (!navigator.onLine) break;
-      const path = `${item.userId}/${item.id}.${item.ext}`;
-      const up = await sb.storage.from('receipts').upload(path, item.blob, { contentType: item.type, upsert: true });
-      if (up.error) { console.warn('upload failed', up.error); break; }
-      const ins = await sb.from('receipts').upsert({ id: item.id, user_id: item.userId, file_path: path, file_type: item.type, status: 'processing' });
-      if (ins.error) { console.warn('insert failed', ins.error); break; }
-      await outbox('readwrite', (s) => s.delete(item.id));
-      // Reading takes a few seconds; the row updates through realtime when done.
-      sb.functions.invoke('extract', { body: { id: item.id } }).catch(console.warn);
+    // Keep going until the queue is empty: photos taken during an upload join this run.
+    for (;;) {
+      const items = await queued();
+      if (!items.length || !navigator.onLine) return;
+      for (const item of items) {
+        const path = `${item.userId}/${item.id}.${item.ext}`;
+        const up = await sb.storage.from('receipts').upload(path, item.blob, { contentType: item.type, upsert: true });
+        if (up.error) { console.warn('upload failed', up.error); return; }
+        const ins = await sb.from('receipts').upsert({ id: item.id, user_id: item.userId, file_path: path, file_type: item.type, status: 'processing' });
+        if (ins.error) { console.warn('insert failed', ins.error); return; }
+        await outbox('readwrite', (s) => s.delete(item.id));
+        // Reading takes a few seconds; the row updates through realtime when done.
+        sb.functions.invoke('extract', { body: { id: item.id } }).catch(console.warn);
+      }
     }
   })().finally(() => { flushing = null; });
   return flushing;
