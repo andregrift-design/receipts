@@ -48,6 +48,7 @@ export async function saveReceipt(r) {
       vat: l.rate === null ? 0 : l.vat === '' || l.vat == null ? null : Number(l.vat),
     })),
     fx_rate: r.currency === 'EUR' ? 1 : r.fx_rate === '' || r.fx_rate == null ? null : Number(r.fx_rate),
+    fx_date: r.currency === 'EUR' ? null : r.fx_date || null,
     notes: r.notes || null,
   };
   fields.status = problems(fields).length ? 'review' : 'done';
@@ -113,13 +114,29 @@ export async function fileBlob(path) {
   return data;
 }
 
-// ECB reference rate for the receipt date (EUR per 1 unit of the currency).
+// ECB reference rate for the receipt date: { rate (EUR per 1 unit), date (the business day it is from) }.
 export async function ecbRate(currency, date) {
-  if (!currency || currency === 'EUR') return 1;
+  if (!currency || currency === 'EUR') return { rate: 1, date: null };
   if (!date) return null;
   const res = await fetch(`https://api.frankfurter.dev/v1/${date}?base=${currency}&symbols=EUR`);
   if (!res.ok) return null;
-  return (await res.json())?.rates?.EUR ?? null;
+  const data = await res.json();
+  return data?.rates?.EUR ? { rate: data.rates.EUR, date: data.date } : null;
+}
+
+// ECB EUR->USD rates for a period. Returns lookup(date) -> { rate, date } using the last business day on or before it.
+export async function eurUsdRates(start, end) {
+  const from = new Date(`${start}T12:00:00Z`);
+  from.setUTCDate(from.getUTCDate() - 10); // weekends and holidays at the start of the period
+  if (from.toISOString().slice(0, 10) > end) return () => null; // period entirely in the future
+  const res = await fetch(`https://api.frankfurter.dev/v1/${from.toISOString().slice(0, 10)}..${end}?base=EUR&symbols=USD`);
+  if (!res.ok) throw new Error(`Could not load USD exchange rates (${res.status})`);
+  const days = Object.entries((await res.json()).rates || {}).map(([d, r]) => [d, r.USD]).sort((a, b) => a[0].localeCompare(b[0]));
+  return (date) => {
+    let hit = null;
+    for (const d of days) { if (d[0] <= date) hit = d; else break; }
+    return hit ? { rate: hit[1], date: hit[0] } : null;
+  };
 }
 
 // ---------- sharing ----------

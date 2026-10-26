@@ -3,10 +3,11 @@ import * as api from './api.js';
 import {
   CATEGORIES, CURRENCIES, COUNTRIES, RATES, HOME_COUNTRY, money, fmtDate, problems, splitGross, linesSum,
   fxFor, isNum, round2, quarterOf, quarterRange, quarterLabel, summarize, vatLabel, isHome, countryName, DOC_TYPES, weakProof,
+  usdConversion, eurConversion,
 } from './vat.js';
 import { downloadExcel, downloadPdf, downloadZip, numbered } from './export.js';
 
-const VERSION = '1.5';
+const VERSION = '1.6';
 
 // ---------- helpers ----------
 
@@ -87,8 +88,8 @@ function SignIn() {
   return html`
     <div class="auth">
       <form class="card auth-card" onSubmit=${submit}>
-        <img src="icons/icon-192.png" alt="" class="auth-logo" />
-        <h1>Receipts</h1>
+        <img src="icons/icon-192.png" alt="VH5" class="auth-logo" />
+        <h1>VH5</h1>
         <p class="hint">${mode === 'signup' ? 'Create an account. Accountants: use the email address your client shared with.' : mode === 'forgot' ? 'Get a link to set a new password.' : 'Sign in to see your receipts on every device.'}</p>
         <label>Email<input type="email" autocomplete="email" required value=${email} onInput=${(e) => setEmail(e.target.value)} /></label>
         ${mode !== 'forgot' && html`<label>Password<input type="password" autocomplete=${mode === 'signup' ? 'new-password' : 'current-password'} required minlength="8" value=${password} onInput=${(e) => setPassword(e.target.value)} /></label>`}
@@ -247,7 +248,7 @@ function Main({ user }) {
       onDragLeave=${(e) => { if (e.target === e.currentTarget) setDragging(false); }}
       onDrop=${mine ? onDrop : undefined}>
       <header class="topbar">
-        <a class="brand" href="#/"><img src="icons/icon-192.png" alt="" />Receipts</a>
+        <a class="brand" href="#/"><img src="icons/icon-192.png" alt="" />VH5</a>
         <nav class="tabs">
           <a class=${!view || view === 'r' ? 'on' : ''} href="#/">Receipts${open ? html` <span class="count">${open}</span>` : ''}</a>
           <a class=${view === 'quarter' ? 'on' : ''} href="#/quarter">Quarter</a>
@@ -544,7 +545,7 @@ function Editor({ receipt, readOnly }) {
   // Fetch the ECB rate when the currency or date changes (unless you typed one).
   useEffect(() => {
     if (readOnly || !dirty || form.currency === 'EUR' || fxTouched.current || !form.receipt_date) return;
-    api.ecbRate(form.currency, form.receipt_date).then((rate) => rate && setForm((f) => ({ ...f, fx_rate: String(rate) }))).catch(() => {});
+    api.ecbRate(form.currency, form.receipt_date).then((r) => r && setForm((f) => ({ ...f, fx_rate: String(r.rate), fx_date: r.date }))).catch(() => {});
   }, [form.currency, form.receipt_date]);
 
   const value = fromForm(form);
@@ -659,9 +660,11 @@ function Editor({ receipt, readOnly }) {
             ${form.currency !== 'EUR' && html`
               <div class="grid2">
                 <label>Exchange rate (EUR per ${form.currency})
-                  <input inputmode="decimal" value=${form.fx_rate} onInput=${(e) => { fxTouched.current = true; set({ fx_rate: e.target.value }); }} />
+                  <input inputmode="decimal" value=${form.fx_rate} onInput=${(e) => { fxTouched.current = true; set({ fx_rate: e.target.value, fx_date: null }); }} />
                 </label>
-                <p class="hint fx">${fx != null && isNum(value.total) ? `= ${money(value.total * fx)} (ECB rate on the receipt date)` : 'Fills in from the ECB once the date is set.'}</p>
+                <p class="hint fx">${fx == null ? 'Fills in from the ECB once the date is set.' : html`
+                  1 ${form.currency} = ${fx.toFixed(4)} EUR · ${form.fx_date ? `ECB rate of ${fmtDate(form.fx_date)}${form.fx_date !== form.receipt_date ? ' (last business day before the receipt date)' : ''}` : 'rate entered by hand'}
+                  ${isNum(value.total) ? html`<br /><strong>${money(value.total, form.currency)} = ${money(value.total * fx)}</strong>` : ''}`}</p>
               </div>`}
 
             <div class="vat">
@@ -706,97 +709,152 @@ function Editor({ receipt, readOnly }) {
 
 // ---------- quarter overview ----------
 
-function SummaryTable({ groups, sum, totalLabel }) {
-  const dash = (g, v) => (g.key.endsWith(':unknown') ? '–' : money(v));
+function SummaryTable({ groups, sum, totalLabel, cur }) {
+  const m = (v) => money(v, cur);
+  const dash = (g, v) => (g.key.endsWith(':unknown') ? '–' : m(v));
   return html`
     <table class="summary">
       <thead><tr><th>VAT category</th><th class="n">Receipts</th><th class="n">Net</th><th class="n">VAT</th><th class="n">Gross</th></tr></thead>
-      <tbody>${groups.map((g) => html`<tr><td>${g.label}</td><td class="n">${g.count}</td><td class="n">${dash(g, g.net)}</td><td class="n">${dash(g, g.vat)}</td><td class="n">${money(g.gross)}</td></tr>`)}</tbody>
-      <tfoot><tr><td>${totalLabel}</td><td class="n">${sum.count}</td><td class="n">${money(sum.net)}</td><td class="n">${money(sum.vat)}</td><td class="n">${money(sum.gross)}</td></tr></tfoot>
+      <tbody>${groups.map((g) => html`<tr><td>${g.label}</td><td class="n">${g.count}</td><td class="n">${dash(g, g.net)}</td><td class="n">${dash(g, g.vat)}</td><td class="n">${m(g.gross)}</td></tr>`)}</tbody>
+      <tfoot><tr><td>${totalLabel}</td><td class="n">${sum.count}</td><td class="n">${m(sum.net)}</td><td class="n">${m(sum.vat)}</td><td class="n">${m(sum.gross)}</td></tr></tfoot>
     </table>`;
 }
+
+// Report currency: EUR for the Dutch accountant, USD for the US CPA (converted on the receipt date).
+const getReportCurrency = () => localStorage.getItem('reportCurrency') || 'EUR';
 
 function Quarter({ receipts, arg, owner }) {
   const def = defaultQuarter();
   const [y, q] = arg ? arg.split('-').map(Number) : [def.year, def.q];
-  const year = y || def.year, quarter = q || def.q;
+  const year = y || def.year, quarter = Number.isInteger(q) && q >= 0 && q <= 4 ? q : def.q;
   const [busy, setBusy] = useState('');
+  const [cur, setCur] = useState(getReportCurrency());
+  const [usd, setUsd] = useState(null); // { start, lookup } or { error }
   const { start, end } = quarterRange(year, quarter);
-  const inQ = useMemo(() => receipts.filter((r) => r.receipt_date && r.receipt_date >= start && r.receipt_date <= end), [receipts, start]);
+  const inQ = useMemo(() => receipts.filter((r) => r.receipt_date && r.receipt_date >= start && r.receipt_date <= end), [receipts, start, end]);
   const undated = receipts.filter((r) => !r.receipt_date && r.status !== 'processing');
-  const s = useMemo(() => summarize(inQ), [inQ]);
+
+  useEffect(() => {
+    if (cur !== 'USD' || (usd && usd.start === start && usd.end === end)) return;
+    setUsd(null);
+    api.eurUsdRates(start, end < new Date().toISOString().slice(0, 10) ? end : new Date().toISOString().slice(0, 10))
+      .then((lookup) => setUsd({ start, end, lookup }))
+      .catch((e) => setUsd({ start, end, error: e.message }));
+  }, [cur, start, end]);
+
+  const conv = useMemo(() => (cur === 'USD' ? (usd?.lookup ? usdConversion(usd.lookup) : null) : eurConversion), [cur, usd]);
+  const s = useMemo(() => (conv ? summarize(inQ, conv.factor) : null), [inQ, conv]);
   const nums = useMemo(() => new Map(numbered(inQ).map((n) => [n.r.id, n.no])), [inQ]);
-  const step = (d) => { let yy = year, qq = quarter + d; if (qq < 1) { qq = 4; yy--; } if (qq > 4) { qq = 1; yy++; } go(`quarter/${yy}-${qq}`); };
-  const meta = { title: `Q${quarter} ${year}`, owner, fileBase: `Receipts ${year}-Q${quarter}` };
+  const m = (v) => money(v, cur);
+  const step = (d) => {
+    if (!quarter) return go(`quarter/${year + d}-0`);
+    let yy = year, qq = quarter + d; if (qq < 1) { qq = 4; yy--; } if (qq > 4) { qq = 1; yy++; } go(`quarter/${yy}-${qq}`);
+  };
+  const setCurrency = (c) => { localStorage.setItem('reportCurrency', c); setCur(c); };
+  const title = quarter ? `Q${quarter} ${year}` : `${year}`;
+  const meta = { title: `${title}${cur === 'USD' ? ' (USD)' : ''}`, owner, currency: cur, conv, fileBase: `VH5 receipts ${quarter ? `${year}-Q${quarter}` : year}${cur === 'USD' ? ' USD' : ''}` };
 
   const run = async (label, fn) => {
     setBusy(label);
     try { await fn(); } catch (e) { alert(e.message); } finally { setBusy(''); }
   };
+  const ready = !!s && inQ.length > 0 && !busy;
 
   return html`
     <div class="quarter">
       <div class="qhead">
-        <button class="icon" onClick=${() => step(-1)} aria-label="Previous quarter">‹</button>
+        <button class="icon" onClick=${() => step(-1)} aria-label="Previous period">‹</button>
         <h1>${quarterLabel(year, quarter)}</h1>
-        <button class="icon" onClick=${() => step(1)} aria-label="Next quarter">›</button>
+        <button class="icon" onClick=${() => step(1)} aria-label="Next period">›</button>
+      </div>
+      <div class="qswitch no-print">
+        <div class="seg">
+          ${[1, 2, 3, 4].map((n) => html`<a class=${quarter === n ? 'on' : ''} href=${`#/quarter/${year}-${n}`}>Q${n}</a>`)}
+          <a class=${!quarter ? 'on' : ''} href=${`#/quarter/${year}-0`}>Year</a>
+        </div>
+        <div class="seg">
+          <button class=${cur === 'EUR' ? 'on' : ''} onClick=${() => setCurrency('EUR')}>EUR · Dutch accountant</button>
+          <button class=${cur === 'USD' ? 'on' : ''} onClick=${() => setCurrency('USD')}>USD · US CPA</button>
+        </div>
       </div>
       <p class="print-only">${owner} · printed ${new Date().toLocaleDateString('en-US')}</p>
 
-      ${s.open.length > 0 && html`
-        <div class="note">${s.open.length} receipt${s.open.length > 1 ? 's' : ''} in this quarter still need${s.open.length > 1 ? '' : 's'} checking:
-          ${s.open.map((r, i) => html`${i ? ', ' : ' '}<a href=${`#/r/${r.id}`}>${r.store || r.description || fmtDate(r.receipt_date)}</a>`)}.</div>`}
-      ${undated.length > 0 && html`<div class="note">${undated.length} receipt${undated.length > 1 ? 's have' : ' has'} no date and ${undated.length > 1 ? 'are' : 'is'} not in any quarter. <a href="#/">Fix in the list</a>.</div>`}
+      ${cur === 'USD' && !usd && html`<p class="hint">Loading USD exchange rates…</p>`}
+      ${cur === 'USD' && usd?.error && html`<div class="note bad">${usd.error}</div>`}
 
-      ${!s.groups.length && html`<section class="card"><p class="hint">No receipts in this quarter.</p></section>`}
+      ${s && html`
+      ${s.open.length > 0 && html`
+        <div class="note">${s.open.length} receipt${s.open.length > 1 ? 's' : ''} in this period still need${s.open.length > 1 ? '' : 's'} checking:
+          ${s.open.map((r, i) => html`${i ? ', ' : ' '}<a href=${`#/r/${r.id}`}>${r.store || r.description || fmtDate(r.receipt_date)}</a>`)}.</div>`}
+      ${s.missingRate.length > 0 && html`<div class="note bad">No exchange rate for: ${s.missingRate.map((r, i) => html`${i ? ', ' : ''}<a href=${`#/r/${r.id}`}>${r.store || fmtDate(r.receipt_date)}</a>`)}. Their amounts are left out of the totals.</div>`}
+      ${undated.length > 0 && html`<div class="note">${undated.length} receipt${undated.length > 1 ? 's have' : ' has'} no date and ${undated.length > 1 ? 'are' : 'is'} not in any period. <a href="#/">Fix in the list</a>.</div>`}
+
+      ${!s.groups.length && html`<section class="card"><p class="hint">No receipts in this period.</p></section>`}
 
       ${s.home.groups.length > 0 && html`
         <h2>Netherlands</h2>
         <section class="card">
-          <${SummaryTable} groups=${s.home.groups} sum=${s.home} totalLabel="Total Netherlands" />
-          <p class="hint">Dutch VAT to deduct (input tax): <strong>${money(s.homeVat)}</strong>${s.weakVat > 0 ? html`, of which <strong>${money(s.weakVat)}</strong> rests on a payment receipt or no document` : ''}</p>
+          <${SummaryTable} groups=${s.home.groups} sum=${s.home} totalLabel="Total Netherlands" cur=${cur} />
+          <p class="hint">Dutch VAT to deduct (input tax): <strong>${m(s.homeVat)}</strong>${s.weakVat > 0 ? html`, of which <strong>${m(s.weakVat)}</strong> rests on a payment receipt or no document` : ''}</p>
         </section>`}
 
       ${s.foreign.groups.length > 0 && html`
         <h2>Foreign VAT</h2>
         <section class="card">
-          <${SummaryTable} groups=${s.foreign.groups} sum=${s.foreign} totalLabel="Total foreign" />
+          <${SummaryTable} groups=${s.foreign.groups} sum=${s.foreign} totalLabel="Total foreign" cur=${cur} />
           ${s.foreign.countries.length > 1 && html`
             <table class="summary per-country">
               <thead><tr><th>Per country</th><th class="n">Receipts</th><th class="n">Net</th><th class="n">VAT</th><th class="n">Gross</th></tr></thead>
-              <tbody>${s.foreign.countries.map((c) => html`<tr><td>${c.name}</td><td class="n">${c.count}</td><td class="n">${money(c.net)}</td><td class="n">${money(c.vat)}</td><td class="n">${money(c.gross)}</td></tr>`)}</tbody>
+              <tbody>${s.foreign.countries.map((c) => html`<tr><td>${c.name}</td><td class="n">${c.count}</td><td class="n">${m(c.net)}</td><td class="n">${m(c.vat)}</td><td class="n">${m(c.gross)}</td></tr>`)}</tbody>
             </table>`}
-          <p class="hint">Foreign VAT: <strong>${money(s.foreignVat)}</strong>. Not deductible on your Dutch VAT return; within the EU it can be reclaimed from that country (EU VAT refund).</p>
+          <p class="hint">Foreign VAT: <strong>${m(s.foreignVat)}</strong>. Not deductible on your Dutch VAT return; within the EU it can be reclaimed from that country (EU VAT refund).</p>
         </section>`}
 
-      ${s.groups.length > 0 && html`<p class="hint">All amounts in EUR; foreign currencies at the ECB rate on the receipt date. ${inQ.length} receipts, ${money(s.total.gross)} in total.</p>`}
+      ${s.categories.length > 0 && html`
+        <h2>Per expense category</h2>
+        <section class="card">
+          <table class="summary">
+            <thead><tr><th>Category</th><th class="n">Receipts</th><th class="n">Net</th><th class="n">VAT</th><th class="n">Gross</th></tr></thead>
+            <tbody>${s.categories.map((c) => html`<tr><td>${c.category}</td><td class="n">${c.count}</td><td class="n">${m(c.net)}</td><td class="n">${m(c.vat)}</td><td class="n">${m(c.gross)}</td></tr>`)}</tbody>
+            <tfoot><tr><td>Total</td><td class="n">${s.total.count}</td><td class="n">${m(s.total.net)}</td><td class="n">${m(s.total.vat)}</td><td class="n">${m(s.total.gross)}</td></tr></tfoot>
+          </table>
+        </section>`}
+
+      ${s.groups.length > 0 && html`<p class="hint">All amounts in ${cur}. ${cur === 'USD'
+        ? 'Converted on each receipt date: receipt currency to EUR at the ECB rate, then EUR to USD at the ECB rate of that day (last business day before it on weekends and holidays). Receipts in USD are not converted.'
+        : 'Foreign currencies at the ECB rate on the receipt date.'} ${inQ.length} receipts, ${m(s.total.gross)} in total.</p>`}
+      `}
 
       <div class="actions no-print">
-        <button class="primary" disabled=${!inQ.length || !!busy} onClick=${() => run('Excel…', () => downloadExcel(inQ, meta))}>Download Excel</button>
-        <button disabled=${!inQ.length || !!busy} onClick=${() => run('PDF…', () => downloadPdf(inQ, meta, (n, t) => setBusy(`PDF: photo ${n} of ${t}…`)))}>Download PDF</button>
-        <button disabled=${!inQ.length || !!busy} onClick=${() => run('ZIP…', () => downloadZip(inQ, meta, (n, t) => setBusy(`ZIP: photo ${n} of ${t}…`)))}>ZIP with photos</button>
+        <button class="primary" disabled=${!ready} onClick=${() => run('Excel…', () => downloadExcel(inQ, meta))}>Download Excel${cur === 'USD' ? ' (USD)' : ''}</button>
+        <button disabled=${!ready} onClick=${() => run('PDF…', () => downloadPdf(inQ, meta, (n, t) => setBusy(`PDF: photo ${n} of ${t}…`)))}>Download PDF${cur === 'USD' ? ' (USD)' : ''}</button>
+        <button disabled=${!ready} onClick=${() => run('ZIP…', () => downloadZip(inQ, meta, (n, t) => setBusy(`ZIP: photo ${n} of ${t}…`)))}>ZIP with photos</button>
         ${busy && html`<span class="hint">${busy}</span>`}
       </div>
 
-      ${s.groups.map((g) => html`
+      ${s && s.groups.map((g) => html`
         <section class="detail">
           <h2>${g.label}</h2>
           <div class="card">
             <table>
               <thead><tr><th>No.</th><th>Date</th><th>Store / description</th><th class="n">Net</th><th class="n">VAT</th><th class="n">Gross</th></tr></thead>
               <tbody>
-                ${[...g.rows].sort((a, b) => nums.get(a.receipt.id) - nums.get(b.receipt.id)).map((row) => html`
+                ${[...g.rows].sort((a, b) => nums.get(a.receipt.id) - nums.get(b.receipt.id)).map((row) => {
+                  const r = row.receipt;
+                  const rate = r.currency !== cur ? conv.rate(r) : null;
+                  return html`
                   <tr>
-                    <td>${nums.get(row.receipt.id)}</td>
-                    <td class="nowrap">${row.receipt.receipt_date}</td>
-                    <td><a href=${`#/r/${row.receipt.id}`}>${row.receipt.store || '–'}</a>${row.receipt.description ? html`<small> · ${row.receipt.description}</small>` : ''}
-                      ${row.receipt.currency !== 'EUR' ? html`<small> · ${money(row.gross_orig, row.receipt.currency)}</small>` : ''}
-                      ${weakProof(row.receipt) ? html` <span class="badge st-weak">${DOC_TYPES[row.receipt.doc_type]}</span>` : ''}
-                      ${row.receipt.status !== 'done' ? html` <${Badge} status=${row.receipt.status} />` : ''}</td>
-                    <td class="n">${money(row.net)}</td><td class="n">${money(row.vat)}</td><td class="n">${money(row.gross)}</td>
-                  </tr>`)}
+                    <td>${nums.get(r.id)}</td>
+                    <td class="nowrap">${r.receipt_date}</td>
+                    <td><a href=${`#/r/${r.id}`}>${r.store || '–'}</a>${r.description ? html`<small> · ${r.description}</small>` : ''}
+                      ${rate ? html`<small> · ${money(row.gross_orig, r.currency)} at ${rate.rate.toFixed(4)}${rate.date ? ` (${rate.date})` : ''}</small>` : ''}
+                      ${weakProof(r) ? html` <span class="badge st-weak">${DOC_TYPES[r.doc_type]}</span>` : ''}
+                      ${r.status !== 'done' ? html` <${Badge} status=${r.status} />` : ''}</td>
+                    <td class="n">${m(row.net)}</td><td class="n">${m(row.vat)}</td><td class="n">${m(row.gross)}</td>
+                  </tr>`;
+                })}
               </tbody>
-              <tfoot><tr><td colspan="3">Subtotal</td><td class="n">${money(g.net)}</td><td class="n">${money(g.vat)}</td><td class="n">${money(g.gross)}</td></tr></tfoot>
+              <tfoot><tr><td colspan="3">Subtotal</td><td class="n">${m(g.net)}</td><td class="n">${m(g.vat)}</td><td class="n">${m(g.gross)}</td></tr></tfoot>
             </table>
           </div>
         </section>`)}
@@ -850,7 +908,7 @@ function Settings({ user, viewers, sharedWithMe, reload }) {
         <h3>Install on your devices</h3>
         <p class="hint"><strong>iPhone / iPad:</strong> Safari → Share → Add to Home Screen. <strong>Mac:</strong> Safari → File → Add to Dock. Everything syncs through your account.</p>
       </section>
-      <p class="hint center">Receipts ${VERSION}</p>
+      <p class="hint center">VH5 ${VERSION}</p>
     </div>`;
 }
 

@@ -22,7 +22,9 @@ export const deleteReceipt = async () => {};
 export const readAgain = async (id) => rows.find((r) => r.id === id);
 export const fileUrl = async () => '../icons/icon-512.png';
 export const fileBlob = async () => (await fetch('/icons/icon-512.png')).blob();
-export const ecbRate = async () => 0.9;
+export const ecbRate = async () => ({ rate: 0.9, date: '2026-07-20' });
+// The real function (the ?real query avoids the import map that points /src/api.js here).
+export { eurUsdRates } from '/src/api.js?real';
 export const myShares = async () => [{ owner_id: 'me', viewer_email: 'cpa@example.com', owner_email: 'me@example.com' }];
 export const addShare = async () => {};
 export const removeShare = async () => {};

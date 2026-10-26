@@ -1,52 +1,47 @@
 import AppKit
 
-// Receipt with a torn bottom edge and a check mark, on the app's green.
-// Run: swift tools/make-icon.swift  (writes icons/icon-{180,192,512}.png)
-func rgb(_ h: UInt32) -> NSColor {
-  NSColor(srgbRed: CGFloat((h >> 16) & 255) / 255, green: CGFloat((h >> 8) & 255) / 255, blue: CGFloat(h & 255) / 255, alpha: 1)
-}
+// VH5 icon: the silhouette from Viola's invoice (black on white) above the invoice's black bar with "VH5".
+// tools/silhouette-mask.png is the figure's mask from the invoice PDF (white = figure).
+// Run from the project folder: swift tools/make-icon.swift  (writes icons/icon-{180,192,512}.png)
+
+let mask = NSImage(contentsOfFile: "tools/silhouette-mask.png")!
+var rect = NSRect(origin: .zero, size: mask.size)
+let maskCG = mask.cgImage(forProposedRect: &rect, context: nil, hints: nil)!
+// Head to waist: top 1080 px of the 1024 x 1536 mask.
+let crop = maskCG.cropping(to: CGRect(x: 0, y: 0, width: 1024, height: 1080))!
 
 func draw(_ size: CGFloat) -> Data {
   let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size), pixelsHigh: Int(size), bitsPerSample: 8,
                              samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
   NSGraphicsContext.saveGraphicsState()
-  NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+  let g = NSGraphicsContext(bitmapImageRep: rep)!
+  NSGraphicsContext.current = g
+  let ctx = g.cgContext
   let s = size / 100
-  rgb(0x2F6F5E).setFill()
+
+  NSColor.white.setFill()
   NSRect(x: 0, y: 0, width: size, height: size).fill()
 
-  // paper
-  let paper = NSBezierPath()
-  let left = 27 * s, right = 73 * s, top = 84 * s, bottom = 20 * s
-  paper.move(to: NSPoint(x: left, y: top))
-  paper.line(to: NSPoint(x: right, y: top))
-  paper.line(to: NSPoint(x: right, y: bottom))
-  let teeth = 6
-  let w = (right - left) / CGFloat(teeth)
-  for i in 0..<teeth {
-    let x = right - CGFloat(i) * w
-    paper.line(to: NSPoint(x: x - w / 2, y: bottom + 5 * s))
-    paper.line(to: NSPoint(x: x - w, y: bottom))
-  }
-  paper.close()
-  rgb(0xFFFFFF).setFill()
-  paper.fill()
+  // Black bar along the bottom, as on the invoice.
+  let bar = 24 * s
+  NSColor.black.setFill()
+  NSRect(x: 0, y: 0, width: size, height: bar).fill()
 
-  // lines of text
-  rgb(0xBFD6CE).setFill()
-  for (i, len) in [30.0, 22.0, 26.0].enumerated() {
-    NSBezierPath(roundedRect: NSRect(x: 34 * s, y: (72 - Double(i) * 8) * s, width: len * s, height: 3.6 * s), xRadius: 1.8 * s, yRadius: 1.8 * s).fill()
-  }
-  // check mark
-  let check = NSBezierPath()
-  check.move(to: NSPoint(x: 38 * s, y: 40 * s))
-  check.line(to: NSPoint(x: 46 * s, y: 32 * s))
-  check.line(to: NSPoint(x: 62 * s, y: 50 * s))
-  check.lineWidth = 6 * s
-  check.lineCapStyle = .round
-  check.lineJoinStyle = .round
-  rgb(0x2F6F5E).setStroke()
-  check.stroke()
+  // Silhouette standing on the bar, a little left of center like on the invoice.
+  let h = 72 * s
+  let w = h * 1024 / 1080
+  let figure = CGRect(x: 8 * s, y: bar - 1, width: w, height: h)
+  ctx.saveGState()
+  ctx.clip(to: figure, mask: crop)
+  ctx.setFillColor(NSColor.black.cgColor)
+  ctx.fill(figure)
+  ctx.restoreGState()
+
+  // "VH5" in the bar.
+  let font = NSFont.systemFont(ofSize: 15 * s, weight: .heavy)
+  let text = NSAttributedString(string: "VH5", attributes: [.font: font, .foregroundColor: NSColor.white, .kern: 1.2 * s])
+  let t = text.size()
+  text.draw(at: NSPoint(x: size - t.width - 7 * s, y: (bar - t.height) / 2))
 
   NSGraphicsContext.restoreGraphicsState()
   return rep.representation(using: .png, properties: [:])!

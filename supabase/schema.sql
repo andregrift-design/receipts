@@ -30,6 +30,8 @@ create table if not exists public.receipts (
 
 -- Added later (safe to run again)
 alter table public.receipts add column if not exists store_address text;
+-- date of the ECB rate used (the receipt date, or the last business day before it)
+alter table public.receipts add column if not exists fx_date date;
 -- receipt | invoice | payment (only a payment receipt: card slip, bank or payment app) | none (entered by hand)
 alter table public.receipts add column if not exists doc_type text not null default 'receipt';
 do $$ begin

@@ -232,3 +232,8 @@ tfoot td { font-weight: 700; border-bottom: 0; }
 .st-weak { background: var(--bad-soft); color: var(--bad); }
 .preview .replace { left: 8px; right: auto; float: left; margin: -40px 0 8px 8px; }
 .empty-preview .center { padding: 24px; }
+.qswitch { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin: -6px 0 16px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--card); }
+.seg a, .seg button { border: 0; border-radius: 0; background: none; padding: 7px 12px; color: var(--muted); font-size: 14px; font-weight: 500; }
+.seg a + a, .seg button + button { border-left: 1px solid var(--line); }
+.seg .on { background: var(--accent-soft); color: var(--accent); }

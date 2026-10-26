@@ -1,7 +1,7 @@
 {
-  "name": "Receipts",
-  "short_name": "Receipts",
-  "description": "Photograph receipts, check the VAT, and give your accountant a quarterly overview.",
+  "name": "VH5",
+  "short_name": "VH5",
+  "description": "VH5 receipts: photograph receipts, check the VAT, and give your accountants an overview.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

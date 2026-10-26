@@ -91,13 +91,14 @@ Country: determine it from the store's address. Use, in this order: a country na
 Pick the category that fits best:
 ${Object.entries(CATEGORY_EXAMPLES).map(([k, v]) => `- ${k}: ${v}`).join('\n')}`;
 
-async function fxRate(currency: string, date: string): Promise<number | null> {
-  if (currency === 'EUR') return 1;
+// ECB reference rate (EUR per 1 unit of currency) on the date, or the last business day before it.
+async function fxRate(currency: string, date: string): Promise<{ rate: number; date: string | null } | null> {
+  if (currency === 'EUR') return { rate: 1, date: null };
   try {
     const res = await fetch(`https://api.frankfurter.dev/v1/${date}?base=${currency}&symbols=EUR`);
     if (!res.ok) return null;
     const data = await res.json();
-    return data?.rates?.EUR ?? null;
+    return data?.rates?.EUR ? { rate: data.rates.EUR, date: data.date } : null;
   } catch {
     return null;
   }
@@ -180,7 +181,7 @@ Deno.serve(async (req) => {
       doc_type: docType, store: x.store, store_address: x.store_address, description: x.description, category: x.category,
       receipt_date: date, currency, total: x.total != null ? round2(x.total) : null,
       vat_country: /^[A-Z]{2}$/.test(x.vat_country || '') ? x.vat_country : row.vat_country,
-      vat_lines: lines, fx_rate: fx, issues, extraction: x, error: null,
+      vat_lines: lines, fx_rate: fx?.rate ?? null, fx_date: fx?.date ?? null, issues, extraction: x, error: null,
     };
     const { data: saved, error: saveErr } = await supabase.from('receipts').update(update).eq('id', id).select().single();
     if (saveErr) throw saveErr;

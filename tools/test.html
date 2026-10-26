@@ -2,7 +2,8 @@
 <script type="importmap">{ "imports": { "/src/api.js": "/tools/mock-api.js" } }</script>
 <pre id="out">running…</pre>
 <script type="module">
-import { problems, summarize, splitGross, quarterRange, quarterLabel, vatLabel } from '../src/vat.js';
+import { problems, summarize, splitGross, quarterRange, quarterLabel, vatLabel, usdConversion } from '../src/vat.js';
+import { eurUsdRates } from '/src/api.js';
 import { downloadExcel, downloadPdf, numbered } from '../src/export.js';
 import * as XLSX from 'https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs';
 const out = []; let fail = 0;
@@ -53,6 +54,25 @@ const det = XLSX.utils.sheet_to_json(wb.Sheets.Receipts);
 eq('excel rows', det.length, 6);
 eq('excel row 3', [det[2].Store, det[2].Document, det[2]['VAT EUR'], det[2]['VAT rate']], ['Shell', 'Payment receipt only', 21, 0.21]);
 eq('excel date is a date', det[0].Date instanceof Date, true);
+// USD: fixed EUR/USD 1.10 for the test; USD receipts stay as they are.
+const usdc = usdConversion((d) => ({ rate: 1.1, date: d }));
+const su = summarize(rs, usdc.factor);
+eq('usd NL total', su.home.gross, 173.03);
+eq('usd US receipt unchanged', su.foreign.countries.find((c) => c.country === 'US').gross, 50);
+eq('usd rate shown', usdc.rate(rs[3]), { rate: 1, date: null });
+eq('usd rate EUR receipt', usdc.rate(rs[0]), { rate: 1.1, date: '2026-07-03', eurUsd: 1.1 });
+eq('year range', quarterRange(2026, 0), { start: '2026-01-01', end: '2026-12-31' });
+eq('year label', quarterLabel(2026, 0), '2026 (full year)');
+eq('categories', summarize(rs).categories.length, 1);
+await downloadExcel(rs, { ...meta, currency: 'USD', conv: usdc, fileBase: 'usd' });
+const wbu = XLSX.read(await files['usd.xlsx'].arrayBuffer(), { cellDates: true });
+const detu = XLSX.utils.sheet_to_json(wbu.Sheets.Receipts);
+eq('usd excel headers', ['Net USD', 'Rate to USD', 'Rate date'].every((h) => h in detu[0]), true);
+eq('usd excel shell gross', detu.find((r) => r.Store === 'Shell')['Gross USD'], 133.1);
+// Live ECB rates (network)
+const live = await eurUsdRates('2026-09-01', '2026-09-30');
+const sat = live('2026-09-05'); // a Saturday
+eq('live rate weekend uses Friday', [sat?.date, sat?.rate > 0.8 && sat?.rate < 1.6], ['2026-09-04', true]);
 let progress = 0;
 await downloadPdf(rs, meta, (n) => { progress = n; });
 const pdf = files['Receipts 2026-Q3.pdf'];

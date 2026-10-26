@@ -124,7 +124,9 @@ export function quarterOf(iso) {
   return { year: y, q: Math.floor((m - 1) / 3) + 1 };
 }
 
+// q = 1..4, or 0 for the whole year.
 export function quarterRange(year, q) {
+  if (!q) return { start: `${year}-01-01`, end: `${year}-12-31` };
   const start = `${year}-${String((q - 1) * 3 + 1).padStart(2, '0')}-01`;
   const endMonth = q * 3;
   const last = new Date(year, endMonth, 0).getDate();
@@ -132,16 +134,17 @@ export function quarterRange(year, q) {
 }
 
 export const quarterLabel = (year, q) => {
+  if (!q) return `${year} (full year)`;
   const { start, end } = quarterRange(year, q);
   const m = (iso) => new Date(iso + 'T12:00').toLocaleDateString('en-US', { month: 'short' });
   return `Q${q} ${year} (${m(start)}–${m(end)})`;
 };
 
-// One row per VAT line, in EUR. Receipts without VAT lines get one "unknown" row.
-export function rowsFor(receipts) {
+// One row per VAT line, converted with factor(receipt) (default: to EUR). Receipts without VAT lines get one "unknown" row.
+export function rowsFor(receipts, factor = fxFor) {
   const rows = [];
   for (const r of receipts) {
-    const fx = fxFor(r);
+    const fx = factor(r);
     const eur = (v) => (isNum(v) && fx != null ? round2(Number(v) * fx) : null);
     const lines = r.vat_lines?.length ? r.vat_lines : [{ rate: undefined, net: null, vat: null, gross: r.total }];
     for (const l of lines) {
@@ -161,8 +164,8 @@ const sumOf = (list) => ({
 });
 
 // Quarter overview: Dutch VAT and foreign VAT kept apart, foreign VAT also per country.
-export function summarize(receipts) {
-  const rows = rowsFor(receipts);
+export function summarize(receipts, factor = fxFor) {
+  const rows = rowsFor(receipts, factor);
   const groups = new Map();
   for (const row of rows) {
     if (!groups.has(row.key)) groups.set(row.key, { key: row.key, country: row.key.split(':')[0], label: vatLabel(row.key), receipts: new Set(), net: 0, vat: 0, gross: 0, rows: [] });
@@ -191,5 +194,29 @@ export function summarize(receipts) {
     weakCount: receipts.filter(weakProof).length,
     foreignVat: round2(foreign.reduce((s, g) => s + g.vat, 0)),
     open: receipts.filter((r) => r.status !== 'done'),
+    // Expense categories (gross, VAT included), largest first.
+    categories: [...rows.reduce((m, row) => {
+      const c = row.receipt.category || 'No category';
+      const e = m.get(c) || { category: c, receipts: new Set(), net: 0, vat: 0, gross: 0 };
+      e.receipts.add(row.receipt.id); e.net += row.net || 0; e.vat += row.vat || 0; e.gross += row.gross || 0;
+      return m.set(c, e);
+    }, new Map()).values()]
+      .map((e) => ({ ...e, count: e.receipts.size, net: round2(e.net), vat: round2(e.vat), gross: round2(e.gross) }))
+      .sort((a, b) => b.gross - a.gross),
+    missingRate: receipts.filter((r) => factor(r) == null),
   };
 }
+
+// Conversion to USD on the receipt date: receipt currency -> EUR (ECB) -> USD (ECB EUR/USD of that day).
+// usdLookup comes from api.eurUsdRates. Returns { factor(r), rate(r) } where rate gives { rate, date } for display.
+export function usdConversion(usdLookup) {
+  const rate = (r) => {
+    if (r.currency === 'USD') return { rate: 1, date: null };
+    const toEur = fxFor(r);
+    const eurUsd = r.receipt_date ? usdLookup(r.receipt_date) : null;
+    if (toEur == null || !eurUsd) return null;
+    return { rate: toEur * eurUsd.rate, date: eurUsd.date, eurUsd: eurUsd.rate };
+  };
+  return { factor: (r) => rate(r)?.rate ?? null, rate };
+}
+export const eurConversion = { factor: fxFor, rate: (r) => (r.currency === 'EUR' ? { rate: 1, date: null } : fxFor(r) == null ? null : { rate: fxFor(r), date: r.fx_date || null }) };
