@@ -3,11 +3,11 @@ import * as api from './api.js';
 import {
   CATEGORIES, CURRENCIES, COUNTRIES, RATES, HOME_COUNTRY, money, fmtDate, problems, splitGross, linesSum,
   fxFor, isNum, round2, quarterOf, quarterRange, quarterLabel, summarize, countryName, DOC_TYPES, weakProof,
-  usdConversion, eurConversion,
+  usdConversion, eurConversion, JOB_KINDS, DEDUCTION_TYPES, lineTotal, statementAsReceipt, statementProblems, summarizeIncome, mergeCategories, neg,
 } from './vat.js';
 import { downloadExcel, downloadPdf, downloadZip, numbered } from './export.js';
 
-const VERSION = '1.6.1';
+const VERSION = '1.7';
 
 // ---------- helpers ----------
 
@@ -148,6 +148,7 @@ function Main({ user }) {
   const [shares, setShares] = useState([]);
   const [ownerId, setOwnerId] = useState(localStorage.getItem('owner') || user.id);
   const [receipts, setReceipts] = useState(null);
+  const [statements, setStatements] = useState(null);
   const [queue, setQueue] = useState([]);
   const [loadError, setLoadError] = useState('');
   const [online, setOnline] = useState(navigator.onLine);
@@ -176,22 +177,25 @@ function Main({ user }) {
     go('');
   };
 
-  const refresh = () => api.listReceipts(ownerId).then((r) => { setReceipts(r); setLoadError(''); }).catch((e) => setLoadError(e.message));
+  const refresh = () => Promise.all([api.listReceipts(ownerId), api.listStatements(ownerId)])
+    .then(([r, st]) => { setReceipts(r); setStatements(st); setLoadError(''); }).catch((e) => setLoadError(e.message));
+  // Apply a realtime change to a list.
+  const patch = (p) => (list) => {
+    if (!list) return list;
+    if (p.eventType === 'DELETE') return list.filter((r) => r.id !== p.old.id);
+    const i = list.findIndex((r) => r.id === p.new.id);
+    if (i < 0) return [p.new, ...list];
+    const copy = [...list];
+    copy[i] = p.new;
+    return copy;
+  };
   const refreshQueue = () => api.queued().then((q) => setQueue(q.filter((i) => i.userId === user.id))).catch(() => {});
 
   useEffect(() => {
     refresh();
-    const stop = api.watchReceipts(ownerId, (p) => {
-      setReceipts((list) => {
-        if (!list) return list;
-        if (p.eventType === 'DELETE') return list.filter((r) => r.id !== p.old.id);
-        const i = list.findIndex((r) => r.id === p.new.id);
-        if (i < 0) return [p.new, ...list];
-        const copy = [...list];
-        copy[i] = p.new;
-        return copy;
-      });
-    });
+    const stopR = api.watchReceipts(ownerId, (p) => setReceipts(patch(p)));
+    const stopS = api.watchReceipts(ownerId, (p) => setStatements(patch(p)), 'statements');
+    const stop = () => { stopR(); stopS(); };
     const onVisible = () => { if (document.visibilityState === 'visible') { refresh(); loadShares(); } };
     document.addEventListener('visibilitychange', onVisible);
     const timer = setInterval(() => document.visibilityState === 'visible' && refresh(), 60000);
@@ -208,10 +212,10 @@ function Main({ user }) {
     return () => { removeEventListener('online', up); removeEventListener('offline', down); };
   }, []);
 
-  const addFiles = async (files) => {
+  const addFiles = async (files, kind = 'receipt') => {
     if (!files?.length) return;
     if (!mine) setOwner(user.id);
-    await api.addFiles([...files], user.id);
+    await api.addFiles([...files], user.id, kind);
     await refreshQueue();
     refresh();
   };
@@ -228,19 +232,24 @@ function Main({ user }) {
   const onDrop = (e) => {
     e.preventDefault();
     setDragging(false);
-    addFiles([...e.dataTransfer.files].filter((f) => f.type.startsWith('image/') || f.type === 'application/pdf'));
+    addFiles([...e.dataTransfer.files].filter((f) => f.type.startsWith('image/') || f.type === 'application/pdf'), view === 'income' || view === 's' ? 'statement' : 'receipt');
   };
 
   const [view, arg] = route;
   const open = receipts?.filter((r) => r.status !== 'done').length || 0;
+  const openSt = statements?.filter((r) => r.status !== 'done').length || 0;
   let body;
-  if (!receipts) body = html`<p class="boot">${loadError || 'Loading receipts…'}</p>`;
+  if (!receipts || !statements) body = html`<p class="boot">${loadError || 'Loading receipts…'}</p>`;
   else if (view === 'r') {
     const r = receipts.find((x) => x.id === arg);
     body = r ? html`<${Editor} receipt=${r} readOnly=${!mine} key=${r.id} />` : html`<p class="boot">Receipt not found. <a href="#/">Back</a></p>`;
-  } else if (view === 'quarter') body = html`<${Quarter} receipts=${receipts} arg=${arg} owner=${ownerLabel} />`;
+  } else if (view === 's') {
+    const st = statements.find((x) => x.id === arg);
+    body = st ? html`<${StatementEditor} statement=${st} readOnly=${!mine} key=${st.id} />` : html`<p class="boot">Statement not found. <a href="#/income">Back</a></p>`;
+  } else if (view === 'income') body = html`<${Income} statements=${statements} queue=${mine ? queue.filter((i) => i.kind === 'statement') : []} canAdd=${mine} addFiles=${(f) => addFiles(f, 'statement')} />`;
+  else if (view === 'quarter') body = html`<${Quarter} receipts=${receipts} statements=${statements} arg=${arg} owner=${ownerLabel} />`;
   else if (view === 'settings') body = html`<${Settings} user=${user} viewers=${myViewers} sharedWithMe=${sharedWithMe} reload=${loadShares} />`;
-  else body = html`<${List} receipts=${receipts} queue=${mine ? queue : []} canAdd=${mine} addFiles=${addFiles} addManual=${addManual} />`;
+  else body = html`<${List} receipts=${receipts} queue=${mine ? queue.filter((i) => i.kind !== 'statement') : []} canAdd=${mine} addFiles=${addFiles} addManual=${addManual} />`;
 
   return html`
     <div class="app ${dragging ? 'dragging' : ''}"
@@ -251,6 +260,7 @@ function Main({ user }) {
         <a class="brand" href="#/"><img src="icons/icon-192.png" alt="" />VH5</a>
         <nav class="tabs">
           <a class=${!view || view === 'r' ? 'on' : ''} href="#/">Receipts${open ? html` <span class="count">${open}</span>` : ''}</a>
+          <a class=${view === 'income' || view === 's' ? 'on' : ''} href="#/income">Income${openSt ? html` <span class="count">${openSt}</span>` : ''}</a>
           <a class=${view === 'quarter' ? 'on' : ''} href="#/quarter">Quarter</a>
           <a class=${view === 'settings' ? 'on' : ''} href="#/settings">Settings</a>
         </nav>
@@ -262,7 +272,7 @@ function Main({ user }) {
       ${!online && html`<div class="banner">Offline. New photos are saved on this device and upload when you’re back online.</div>`}
       ${!mine && html`<div class="banner info">You’re viewing ${ownerLabel}’s receipts (read-only).</div>`}
       <main class="main">${body}</main>
-      ${dragging && html`<div class="dropzone">Drop receipts to add them</div>`}
+      ${dragging && html`<div class="dropzone">${view === 'income' || view === 's' ? 'Drop agency statements to import them' : 'Drop receipts to add them'}</div>`}
     </div>`;
 }
 
@@ -707,6 +717,227 @@ function Editor({ receipt, readOnly }) {
     </div>`;
 }
 
+// ---------- agency statements (income) ----------
+
+function Income({ statements, queue, canAdd, addFiles }) {
+  const input = useRef();
+  const groups = [];
+  for (const st of statements) {
+    const key = st.statement_date ? st.statement_date.slice(0, 7) : (st.status === 'processing' ? 'new' : 'nodate');
+    let g = groups.find((x) => x.key === key);
+    if (!g) groups.push((g = { key, items: [] }));
+    g.items.push(st);
+  }
+  const order = (k) => (k === 'new' ? '9999' : k === 'nodate' ? '9998' : k);
+  groups.sort((a, b) => order(b.key).localeCompare(order(a.key)));
+  const title = (k) => (k === 'new' ? 'Just added' : k === 'nodate' ? 'No date' : new Date(k + '-15').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }));
+  return html`
+    <div class="list">
+      ${canAdd && html`
+        <div class="add">
+          <button class="primary big" onClick=${() => input.current.click()}>Import agency statement</button>
+          <input ref=${input} type="file" accept="application/pdf,image/*" multiple hidden onChange=${(e) => { addFiles(e.target.files); e.target.value = ''; }} />
+        </div>
+        <p class="hint">PDF or photo of a payment statement from an agency, from any country or currency. Claude reads the agency, the jobs, fees, VAT and deductions; you check the result. On a laptop you can also drop the files here.</p>`}
+      ${queue.length > 0 && html`
+        <section class="card">${queue.map((i) => html`<div class="row"><span class="what">Statement from ${new Date(i.added).toLocaleString('en-US')}</span><${Badge} status="queued" /></div>`)}</section>`}
+      ${!statements.length && !queue.length && html`<div class="empty"><p>No agency statements yet.</p></div>`}
+      ${groups.map((g) => html`
+        <section class="month">
+          <h2>${title(g.key)}</h2>
+          <div class="card">
+            ${g.items.map((st) => html`
+              <a class="row" href=${`#/s/${st.id}`}>
+                <span class="what">
+                  <strong>${st.agency || (st.status === 'processing' ? 'Reading statement…' : 'Unknown agency')}</strong>
+                  <small>${[st.statement_date && fmtDate(st.statement_date), st.agency_country && countryName(st.agency_country),
+                    (st.lines || []).map((l) => l.client).filter(Boolean).join(', ')].filter(Boolean).join(' · ')}</small>
+                </span>
+                <span class="amount">${money(st.total_paid, st.currency || 'EUR')}
+                  ${st.currency && st.currency !== 'EUR' && isNum(st.total_paid) && isNum(st.fx_rate) && html`<small>${money(st.total_paid * st.fx_rate)}</small>`}</span>
+                ${st.status !== 'done' && html`<${Badge} status=${st.status} />`}
+              </a>`)}
+          </div>
+        </section>`)}
+    </div>`;
+}
+
+const emptyLine = () => ({ job_date: '', client: '', description: '', invoice_no: '', kind: 'day_rate', fee: '', vat_rate: '0', vat: '0', expenses: '0', deductions: [] });
+
+function stToForm(st) {
+  const s = (v) => (isNum(v) ? Number(v).toFixed(2) : '');
+  return {
+    ...st,
+    total_paid: s(st.total_paid),
+    fx_rate: st.currency === 'EUR' ? '' : (st.fx_rate ?? '') + '',
+    lines: (st.lines || []).map((l) => ({
+      ...l, job_date: l.job_date || '', fee: s(l.fee), vat_rate: String(l.vat_rate ?? 0), vat: s(l.vat ?? 0), expenses: s(l.expenses ?? 0),
+      deductions: (l.deductions || []).map((d) => ({ ...d, amount: s(d.amount), vat: s(d.vat ?? 0) })),
+    })),
+  };
+}
+
+function stFromForm(f) {
+  return {
+    ...f,
+    total_paid: parseNum(f.total_paid),
+    fx_rate: f.currency === 'EUR' ? 1 : parseNum(f.fx_rate),
+    lines: f.lines.map((l) => ({
+      ...l, fee: parseNum(l.fee), vat_rate: parseNum(l.vat_rate) ?? 0, vat: parseNum(l.vat) ?? 0, expenses: parseNum(l.expenses) ?? 0,
+      deductions: l.deductions.map((d) => ({ ...d, amount: parseNum(d.amount), vat: parseNum(d.vat) ?? 0 })),
+    })),
+  };
+}
+
+function StatementEditor({ statement, readOnly }) {
+  const [form, setForm] = useState(() => stToForm(statement));
+  const [dirty, setDirty] = useState(false);
+  const [busy, setBusy] = useState('');
+  const [msg, setMsg] = useState('');
+  const fxTouched = useRef(false);
+  useEffect(() => { if (!dirty) setForm(stToForm(statement)); }, [statement.updated_at]);
+
+  const set = (patch) => { setForm((f) => ({ ...f, ...patch })); setDirty(true); setMsg(''); };
+  const setLine = (i, patch) => set({ lines: form.lines.map((l, j) => (j === i ? { ...l, ...patch } : l)) });
+  const setDed = (i, k, patch) => setLine(i, { deductions: form.lines[i].deductions.map((d, j) => (j === k ? { ...d, ...patch } : d)) });
+
+  useEffect(() => {
+    if (readOnly || !dirty || form.currency === 'EUR' || fxTouched.current || !form.statement_date) return;
+    api.ecbRate(form.currency, form.statement_date).then((r) => r && setForm((f) => ({ ...f, fx_rate: String(r.rate), fx_date: r.date }))).catch(() => {});
+  }, [form.currency, form.statement_date]);
+
+  const value = stFromForm(form);
+  const todo = statementProblems(value);
+  const sum = round2(value.lines.reduce((t, l) => t + lineTotal(l), 0));
+  const fx = fxFor(statementAsReceipt(value));
+  const foreign = form.agency_country !== HOME_COUNTRY;
+
+  const save = async () => {
+    setBusy('save');
+    try {
+      const saved = await api.saveStatement(value);
+      setDirty(false);
+      setForm(stToForm(saved));
+      if (saved.status === 'done') go('income');
+      else setMsg('Saved. Still to do: ' + statementProblems(saved).join(', ') + '.');
+    } catch (e) { setMsg(e.message); } finally { setBusy(''); }
+  };
+  const again = async () => {
+    if (dirty && !confirm('Discard your changes and read the statement again?')) return;
+    setBusy('read'); setDirty(false); fxTouched.current = false;
+    try { setForm(stToForm(await api.readAgain(statement.id, 'statement'))); } catch (e) { setMsg(e.message); } finally { setBusy(''); }
+  };
+  const remove = async () => {
+    if (!confirm('Delete this statement and its document?')) return;
+    setBusy('delete');
+    try { await api.deleteStatement(statement); go('income'); } catch (e) { setMsg(e.message); setBusy(''); }
+  };
+  const vatFill = (i) => {
+    const l = value.lines[i];
+    if (isNum(l.fee) && isNum(l.vat_rate)) setLine(i, { vat: (round2(l.fee * l.vat_rate / 100)).toFixed(2) });
+  };
+
+  return html`
+    <div class="editor">
+      <div class="editor-head">
+        <a href="#/income" class="back">‹ Income</a>
+        <${Badge} status=${statement.status} />
+      </div>
+      <div class="editor-body">
+        <${Preview} r=${statement} />
+        <form class="card form" onSubmit=${(e) => { e.preventDefault(); save(); }}>
+          ${statement.status === 'processing' && html`<div class="note">Claude is reading this statement. The fields fill in by themselves in a few seconds.</div>`}
+          ${statement.error && html`<div class="note bad">Reading failed: ${statement.error}</div>`}
+          ${statement.issues?.length > 0 && html`<div class="note"><strong>Check:</strong><ul>${statement.issues.map((i) => html`<li>${i}</li>`)}</ul></div>`}
+          <fieldset disabled=${readOnly}>
+            <div class="grid-addr">
+              <label>Agency<input value=${form.agency || ''} onInput=${(e) => set({ agency: e.target.value })} /></label>
+              <label>Country
+                <select value=${form.agency_country} onChange=${(e) => set({ agency_country: e.target.value })}>
+                  ${[...new Set([...Object.keys(COUNTRIES), form.agency_country])].map((k) => html`<option value=${k}>${countryName(k)}</option>`)}
+                </select>
+              </label>
+            </div>
+            <label>Address<input value=${form.agency_address || ''} onInput=${(e) => set({ agency_address: e.target.value })} /></label>
+            <div class="grid3">
+              <label>Statement no.<input value=${form.statement_no || ''} onInput=${(e) => set({ statement_no: e.target.value })} /></label>
+              <label>Payment date<input type="date" value=${form.statement_date || ''} onInput=${(e) => set({ statement_date: e.target.value })} /></label>
+              <label>Currency
+                <select value=${form.currency} onChange=${(e) => { fxTouched.current = false; set({ currency: e.target.value }); }}>
+                  ${[...new Set([...CURRENCIES, form.currency])].map((c) => html`<option value=${c}>${c}</option>`)}
+                </select>
+              </label>
+            </div>
+            ${form.currency !== 'EUR' && html`
+              <div class="grid2">
+                <label>Exchange rate (EUR per ${form.currency})
+                  <input inputmode="decimal" value=${form.fx_rate} onInput=${(e) => { fxTouched.current = true; set({ fx_rate: e.target.value, fx_date: null }); }} />
+                </label>
+                <p class="hint fx">${fx == null ? 'Fills in from the ECB once the date is set.' : `1 ${form.currency} = ${fx.toFixed(4)} EUR · ${form.fx_date ? `ECB rate of ${fmtDate(form.fx_date)}` : 'rate entered by hand'}`}</p>
+              </div>`}
+            ${foreign && html`<p class="hint">Foreign agency: usually no Dutch VAT on your fee (reverse charge). Agency fees it charges without VAT are reverse-charged: Dutch VAT on them is due and deductible at the same time.</p>`}
+
+            ${form.lines.map((l, i) => html`
+              <div class="job">
+                <div class="job-head"><h3>Job ${i + 1}</h3>
+                  <button type="button" class="link danger" onClick=${() => set({ lines: form.lines.filter((_, j) => j !== i) })}>Remove job</button></div>
+                <div class="grid2">
+                  <label>Client<input value=${l.client || ''} onInput=${(e) => setLine(i, { client: e.target.value })} /></label>
+                  <label>Job date<input type="date" value=${l.job_date || ''} onInput=${(e) => setLine(i, { job_date: e.target.value })} /></label>
+                </div>
+                <label>Job<input value=${l.description || ''} onInput=${(e) => setLine(i, { description: e.target.value })} /></label>
+                <div class="grid2">
+                  <label>Type
+                    <select value=${l.kind || 'other'} onChange=${(e) => setLine(i, { kind: e.target.value })}>
+                      ${Object.entries(JOB_KINDS).map(([k, v]) => html`<option value=${k}>${v}</option>`)}
+                    </select>
+                  </label>
+                  <label>Invoice no.<input value=${l.invoice_no || ''} onInput=${(e) => setLine(i, { invoice_no: e.target.value })} /></label>
+                </div>
+                <div class="grid4">
+                  <label>Fee<input inputmode="decimal" value=${l.fee} onInput=${(e) => setLine(i, { fee: e.target.value })} /></label>
+                  <label>VAT %<input inputmode="decimal" value=${l.vat_rate} onInput=${(e) => setLine(i, { vat_rate: e.target.value })} onBlur=${() => vatFill(i)} /></label>
+                  <label>VAT<input inputmode="decimal" value=${l.vat} onInput=${(e) => setLine(i, { vat: e.target.value })} /></label>
+                  <label>Expenses<input inputmode="decimal" value=${l.expenses} onInput=${(e) => setLine(i, { expenses: e.target.value })} /></label>
+                </div>
+                ${l.deductions.length > 0 && html`<div class="ded-line labels"><span>Deduction</span><span>Description</span><span>Amount</span><span>VAT</span><span></span></div>`}
+                ${l.deductions.map((d, k) => html`
+                  <div class="ded-line">
+                    <select value=${d.type || 'other'} onChange=${(e) => setDed(i, k, { type: e.target.value })}>
+                      ${Object.entries(DEDUCTION_TYPES).map(([key, v]) => html`<option value=${key}>${v}</option>`)}
+                    </select>
+                    <input value=${d.label || ''} placeholder="As printed" onInput=${(e) => setDed(i, k, { label: e.target.value })} />
+                    <input inputmode="decimal" aria-label="Amount" value=${d.amount} onInput=${(e) => setDed(i, k, { amount: e.target.value })} />
+                    <input inputmode="decimal" aria-label="VAT" value=${d.vat} onInput=${(e) => setDed(i, k, { vat: e.target.value })} />
+                    <button type="button" class="link danger" onClick=${() => setLine(i, { deductions: l.deductions.filter((_, j) => j !== k) })}>✕</button>
+                    ${foreign && d.type !== 'tax_withheld' && html`<label class="rc"><input type="checkbox" checked=${!!d.reverse_charge} onChange=${(e) => setDed(i, k, { reverse_charge: e.target.checked })} /> Reverse charge</label>`}
+                  </div>`)}
+                <div class="job-foot">
+                  <button type="button" class="link" onClick=${() => setLine(i, { deductions: [...l.deductions, { type: 'agency_fee', label: '', amount: '', vat: '0', reverse_charge: foreign }] })}>+ Add deduction</button>
+                  <span class="hint">Paid for this job: <strong>${money(lineTotal(value.lines[i]), form.currency)}</strong></span>
+                </div>
+              </div>`)}
+            <button type="button" class="link" onClick=${() => set({ lines: [...form.lines, emptyLine()] })}>+ Add job</button>
+
+            <div class="grid2 total-paid">
+              <label>Amount paid (statement total)<input inputmode="decimal" value=${form.total_paid} onInput=${(e) => set({ total_paid: e.target.value })} /></label>
+              <p class=${isNum(value.total_paid) && Math.abs(sum - value.total_paid) > 0.02 * Math.max(1, form.lines.length) ? 'hint bad fx' : 'hint fx'}>Jobs add up to ${money(sum, form.currency)}</p>
+            </div>
+            <label>Notes<textarea rows="2" value=${form.notes || ''} onInput=${(e) => set({ notes: e.target.value })}></textarea></label>
+          </fieldset>
+          ${!readOnly && html`
+            <div class=${todo.length ? 'note' : 'note good'}>${todo.length ? `Missing: ${todo.join(', ')}.` : 'Complete.'}</div>
+            ${msg && html`<p class="msg">${msg}</p>`}
+            <div class="actions">
+              <button class="primary" disabled=${!!busy}>${busy === 'save' ? 'Saving…' : todo.length ? 'Save' : 'Save as done'}</button>
+              ${statement.file_path && html`<button type="button" disabled=${!!busy} onClick=${again}>${busy === 'read' ? 'Reading…' : 'Read again'}</button>`}
+              <button type="button" class="danger" disabled=${!!busy} onClick=${remove}>Delete</button>
+            </div>`}
+        </form>
+      </div>
+    </div>`;
+}
+
 // ---------- quarter overview ----------
 
 function SummaryTable({ groups, sum, totalLabel, cur }) {
@@ -723,7 +954,7 @@ function SummaryTable({ groups, sum, totalLabel, cur }) {
 // Report currency: EUR for the Dutch accountant, USD for the US CPA (converted on the receipt date).
 const getReportCurrency = () => localStorage.getItem('reportCurrency') || 'EUR';
 
-function Quarter({ receipts, arg, owner }) {
+function Quarter({ receipts, statements, arg, owner }) {
   const def = defaultQuarter();
   const [y, q] = arg ? arg.split('-').map(Number) : [def.year, def.q];
   const year = y || def.year, quarter = Number.isInteger(q) && q >= 0 && q <= 4 ? q : def.q;
@@ -733,6 +964,8 @@ function Quarter({ receipts, arg, owner }) {
   const { start, end } = quarterRange(year, quarter);
   const inQ = useMemo(() => receipts.filter((r) => r.receipt_date && r.receipt_date >= start && r.receipt_date <= end), [receipts, start, end]);
   const undated = receipts.filter((r) => !r.receipt_date && r.status !== 'processing');
+  // Agency statements count in the period of their statement (payment) date.
+  const stInQ = useMemo(() => statements.filter((st) => st.statement_date && st.statement_date >= start && st.statement_date <= end), [statements, start, end]);
 
   useEffect(() => {
     if (cur !== 'USD' || (usd && usd.start === start && usd.end === end)) return;
@@ -744,6 +977,10 @@ function Quarter({ receipts, arg, owner }) {
 
   const conv = useMemo(() => (cur === 'USD' ? (usd?.lookup ? usdConversion(usd.lookup) : null) : eurConversion), [cur, usd]);
   const s = useMemo(() => (conv ? summarize(inQ, conv.factor) : null), [inQ, conv]);
+  const inc = useMemo(() => (conv ? summarizeIncome(stInQ, conv.factor) : null), [stInQ, conv]);
+  const cats = s && inc ? mergeCategories(s.categories, inc.categories) : [];
+  // Dutch VAT return: VAT on income minus deductible VAT (receipts and Dutch agency deductions). Reverse charge cancels out.
+  const vatDue = s && inc ? round2(inc.homeVat + inc.reverseCharge - s.homeVat - inc.deductionVat - inc.reverseCharge) : 0;
   const nums = useMemo(() => new Map(numbered(inQ).map((n) => [n.r.id, n.no])), [inQ]);
   const m = (v) => money(v, cur);
   const step = (d) => {
@@ -752,13 +989,13 @@ function Quarter({ receipts, arg, owner }) {
   };
   const setCurrency = (c) => { localStorage.setItem('reportCurrency', c); setCur(c); };
   const title = quarter ? `Q${quarter} ${year}` : `${year}`;
-  const meta = { title: `${title}${cur === 'USD' ? ' (USD)' : ''}`, owner, currency: cur, conv, fileBase: `VH5 receipts ${quarter ? `${year}-Q${quarter}` : year}${cur === 'USD' ? ' USD' : ''}` };
+  const meta = { title: `${title}${cur === 'USD' ? ' (USD)' : ''}`, owner, currency: cur, conv, statements: stInQ, fileBase: `VH5 receipts ${quarter ? `${year}-Q${quarter}` : year}${cur === 'USD' ? ' USD' : ''}` };
 
   const run = async (label, fn) => {
     setBusy(label);
     try { await fn(); } catch (e) { alert(e.message); } finally { setBusy(''); }
   };
-  const ready = !!s && inQ.length > 0 && !busy;
+  const ready = !!s && (inQ.length > 0 || stInQ.length > 0) && !busy;
 
   return html`
     <div class="quarter">
@@ -788,7 +1025,47 @@ function Quarter({ receipts, arg, owner }) {
       ${s.missingRate.length > 0 && html`<div class="note bad">No exchange rate for: ${s.missingRate.map((r, i) => html`${i ? ', ' : ''}<a href=${`#/r/${r.id}`}>${r.store || fmtDate(r.receipt_date)}</a>`)}. Their amounts are left out of the totals.</div>`}
       ${undated.length > 0 && html`<div class="note">${undated.length} receipt${undated.length > 1 ? 's have' : ' has'} no date and ${undated.length > 1 ? 'are' : 'is'} not in any period. <a href="#/">Fix in the list</a>.</div>`}
 
-      ${!s.groups.length && html`<section class="card"><p class="hint">No receipts in this period.</p></section>`}
+      ${!s.groups.length && !stInQ.length && html`<section class="card"><p class="hint">No receipts or statements in this period.</p></section>`}
+
+      ${inc.count > 0 && html`
+        <h2>Income (agency statements)</h2>
+        <section class="card">
+          ${inc.missingRate.length > 0 && html`<div class="note bad">No exchange rate for ${inc.missingRate.map((st) => st.agency).join(', ')}; left out.</div>`}
+          <table class="summary">
+            <thead><tr><th>Agency</th><th class="n">Statements</th><th class="n">Fees</th><th class="n">VAT</th><th class="n">Deductions</th><th class="n">Paid</th></tr></thead>
+            <tbody>${inc.agencies.map((a) => html`<tr><td>${a.agency} <small>${countryName(a.country)}</small></td><td class="n">${a.count}</td><td class="n">${m(a.fee)}</td><td class="n">${m(a.vat)}</td><td class="n">${m(neg(a.deductions))}</td><td class="n">${m(a.paid)}</td></tr>`)}</tbody>
+            <tfoot><tr><td>Total</td><td class="n">${inc.count}</td><td class="n">${m(inc.fee)}</td><td class="n">${m(inc.vat)}</td><td class="n">${m(neg(inc.fee + inc.vat + inc.expenses - inc.paid))}</td><td class="n">${m(inc.paid)}</td></tr></tfoot>
+          </table>
+          <div class="income-split">
+            <table class="summary">
+              <thead><tr><th>Fees by type</th><th class="n">Amount</th></tr></thead>
+              <tbody>${inc.kinds.map((k) => html`<tr><td>${k.label}</td><td class="n">${m(k.amount)}</td></tr>`)}</tbody>
+            </table>
+            ${inc.deductions.length > 0 && html`
+              <table class="summary">
+                <thead><tr><th>Deductions</th><th class="n">Amount</th></tr></thead>
+                <tbody>${inc.deductions.map((d) => html`<tr><td>${d.label}</td><td class="n">${m(d.amount)}</td></tr>`)}</tbody>
+              </table>`}
+          </div>
+          ${inc.expenses > 0 && html`<p class="hint">Expenses reimbursed by agencies: <strong>${m(inc.expenses)}</strong></p>`}
+          ${inc.deductions.some((d) => d.key === 'tax_withheld') && html`<p class="hint">Tax withheld abroad is not a cost; it may be credited against your income tax.</p>`}
+        </section>`}
+
+      ${cur === 'EUR' && (inc.count > 0 || s.home.groups.length > 0) && html`
+        <h2>Dutch VAT position</h2>
+        <section class="card">
+          <table class="summary">
+            <tbody>
+              <tr><td>VAT on income from Dutch agencies (to pay)</td><td class="n">${m(inc.homeVat)}</td></tr>
+              ${inc.reverseCharge > 0 && html`<tr><td>Reverse-charge VAT on foreign agency fees (due)</td><td class="n">${m(inc.reverseCharge)}</td></tr>`}
+              <tr><td>VAT on receipts (deductible)</td><td class="n">${m(neg(s.homeVat))}</td></tr>
+              ${inc.deductionVat > 0 && html`<tr><td>VAT on Dutch agency deductions (deductible)</td><td class="n">${m(neg(inc.deductionVat))}</td></tr>`}
+              ${inc.reverseCharge > 0 && html`<tr><td>Reverse-charge VAT on foreign agency fees (deductible)</td><td class="n">${m(neg(inc.reverseCharge))}</td></tr>`}
+            </tbody>
+            <tfoot><tr><td>${vatDue >= 0 ? 'To pay' : 'To get back'}</td><td class="n">${m(Math.abs(vatDue))}</td></tr></tfoot>
+          </table>
+          <p class="hint">Fees from foreign agencies carry no Dutch VAT (reverse charge or outside the EU) and belong in their own boxes on the VAT return. Your accountant decides the final return.</p>
+        </section>`}
 
       ${s.home.groups.length > 0 && html`
         <h2>Netherlands</h2>
@@ -809,13 +1086,13 @@ function Quarter({ receipts, arg, owner }) {
           <p class="hint">Foreign VAT: <strong>${m(s.foreignVat)}</strong>. Not deductible on your Dutch VAT return; within the EU it can be reclaimed from that country (EU VAT refund).</p>
         </section>`}
 
-      ${s.categories.length > 0 && html`
+      ${cats.length > 0 && html`
         <h2>Per expense category</h2>
         <section class="card">
           <table class="summary">
             <thead><tr><th>Category</th><th class="n">Receipts</th><th class="n">Net</th><th class="n">VAT</th><th class="n">Gross</th></tr></thead>
-            <tbody>${s.categories.map((c) => html`<tr><td>${c.category}</td><td class="n">${c.count}</td><td class="n">${m(c.net)}</td><td class="n">${m(c.vat)}</td><td class="n">${m(c.gross)}</td></tr>`)}</tbody>
-            <tfoot><tr><td>Total</td><td class="n">${s.total.count}</td><td class="n">${m(s.total.net)}</td><td class="n">${m(s.total.vat)}</td><td class="n">${m(s.total.gross)}</td></tr></tfoot>
+            <tbody>${cats.map((c) => html`<tr><td>${c.category}${c.fromStatements ? html` <small>incl. ${m(c.fromStatements)} deducted by agencies</small>` : ''}</td><td class="n">${c.count}</td><td class="n">${m(c.net)}</td><td class="n">${m(c.vat)}</td><td class="n">${m(c.gross)}</td></tr>`)}</tbody>
+            <tfoot><tr><td>Total</td><td class="n">${s.total.count}</td><td class="n">${m(cats.reduce((t, c) => t + c.net, 0))}</td><td class="n">${m(s.total.vat)}</td><td class="n">${m(cats.reduce((t, c) => t + c.gross, 0))}</td></tr></tfoot>
           </table>
         </section>`}
 

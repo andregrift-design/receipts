@@ -112,3 +112,52 @@ create policy "receipts update own" on storage.objects
 drop policy if exists "receipts delete own" on storage.objects;
 create policy "receipts delete own" on storage.objects
   for delete using (bucket_id = 'receipts' and split_part(name, '/', 1) = auth.uid()::text);
+
+-- ---------- agency statements (income) ----------
+
+create table if not exists public.statements (
+  id             uuid        primary key default gen_random_uuid(),
+  user_id        uuid        not null default auth.uid() references auth.users on delete cascade,
+  file_path      text,                       -- "<user_id>/st-<id>.pdf" in the receipts bucket
+  file_type      text,
+  status         text        not null default 'processing'
+                 check (status in ('processing', 'review', 'done')),
+  agency         text,
+  agency_country text        not null default 'NL',
+  agency_address text,
+  statement_no   text,
+  statement_date date,                       -- payment date; amounts are converted at this date
+  currency       text        not null default 'EUR',
+  fx_rate        numeric(14,6),              -- EUR for 1 unit of currency (ECB, statement date)
+  fx_date        date,
+  -- [{date, job_date, client, description, invoice_no, kind, fee, vat_rate, vat, expenses,
+  --   deductions: [{type: agency_fee|website|transport|tax_withheld|other, label, amount, vat}], total}]
+  lines          jsonb       not null default '[]',
+  total_paid     numeric(12,2),
+  notes          text,
+  issues         jsonb       not null default '[]',
+  extraction     jsonb,
+  error          text,
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now()
+);
+
+create index if not exists statements_user_date on public.statements (user_id, statement_date);
+
+drop trigger if exists statements_touch on public.statements;
+create trigger statements_touch before update on public.statements
+  for each row execute function public.receipts_touch();
+
+alter table public.statements enable row level security;
+
+drop policy if exists "read own or shared" on public.statements;
+create policy "read own or shared" on public.statements
+  for select using (public.can_view(user_id::text));
+
+drop policy if exists "write own" on public.statements;
+create policy "write own" on public.statements
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+do $$ begin
+  alter publication supabase_realtime add table public.statements;
+exception when duplicate_object then null; end $$;

@@ -220,3 +220,20 @@ tfoot td { font-weight: 700; border-bottom: 0; }
 .seg a, .seg button { border: 0; border-radius: 0; background: none; padding: 7px 12px; color: var(--muted); font-size: 14px; font-weight: 500; }
 .seg a + a, .seg button + button { border-left: 1px solid var(--line); }
 .seg .on { background: var(--accent-soft); color: var(--accent); }
+
+/* ---------- agency statements ---------- */
+
+.job { border-top: 1px solid var(--line); padding: 12px 0 6px; margin-top: 6px; }
+.job-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.job-head h3 { margin: 0; }
+.job-foot { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+.grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+@media (max-width: 480px) { .grid4 { grid-template-columns: 1fr 1fr; } }
+.ded-line { display: grid; grid-template-columns: 1.3fr 1.6fr 1fr 0.8fr auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+.ded-line.labels { font-size: 12px; color: var(--muted); margin-bottom: 2px; }
+.ded-line .rc { grid-column: 1 / -1; display: flex; gap: 6px; align-items: center; margin: -2px 0 4px; }
+.ded-line .rc input { width: auto; margin: 0; }
+@media (max-width: 560px) { .ded-line { grid-template-columns: 1fr 1fr; } .ded-line.labels { display: none; } }
+.total-paid { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 10px; }
+.income-split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 14px; }
+@media (max-width: 560px) { .income-split { grid-template-columns: 1fr; } }

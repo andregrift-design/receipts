@@ -1,6 +1,6 @@
 // Supabase access: auth, receipts, photos, sharing, and an offline queue for new photos.
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
-import { problems } from './vat.js';
+import { problems, statementProblems } from './vat.js';
 
 const SUPABASE_JS = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/+esm';
 
@@ -29,11 +29,47 @@ export async function listReceipts(ownerId) {
   }
 }
 
-export function watchReceipts(ownerId, onChange) {
-  const channel = sb.channel(`receipts-${ownerId}`)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'receipts', filter: `user_id=eq.${ownerId}` }, onChange)
+export function watchReceipts(ownerId, onChange, table = 'receipts') {
+  const channel = sb.channel(`${table}-${ownerId}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table, filter: `user_id=eq.${ownerId}` }, onChange)
     .subscribe();
   return () => sb.removeChannel(channel);
+}
+
+// ---------- agency statements ----------
+
+export async function listStatements(ownerId) {
+  const { data, error } = await sb.from('statements').select('*').eq('user_id', ownerId)
+    .order('statement_date', { ascending: false, nullsFirst: true }).order('created_at', { ascending: false });
+  if (error) throw error;
+  return data;
+}
+
+const numOrNull = (v) => (v === '' || v == null ? null : Number(v));
+
+export async function saveStatement(st) {
+  const fields = {
+    agency: st.agency || null, agency_country: st.agency_country || 'NL', agency_address: st.agency_address || null,
+    statement_no: st.statement_no || null, statement_date: st.statement_date || null, currency: st.currency || 'EUR',
+    fx_rate: st.currency === 'EUR' ? 1 : numOrNull(st.fx_rate), fx_date: st.currency === 'EUR' ? null : st.fx_date || null,
+    total_paid: numOrNull(st.total_paid), notes: st.notes || null,
+    lines: (st.lines || []).map((l) => ({
+      job_date: l.job_date || null, client: l.client || null, description: l.description || null, invoice_no: l.invoice_no || null,
+      kind: l.kind || 'other', fee: numOrNull(l.fee), vat_rate: numOrNull(l.vat_rate) ?? 0, vat: numOrNull(l.vat) ?? 0,
+      expenses: numOrNull(l.expenses) ?? 0,
+      deductions: (l.deductions || []).map((d) => ({ type: d.type || 'other', label: d.label || null, amount: numOrNull(d.amount), vat: numOrNull(d.vat) ?? 0, reverse_charge: !!d.reverse_charge })),
+    })),
+  };
+  fields.status = statementProblems(fields).length ? 'review' : 'done';
+  const { data, error } = await sb.from('statements').update(fields).eq('id', st.id).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteStatement(st) {
+  if (st.file_path) await sb.storage.from('receipts').remove([st.file_path]);
+  const { error } = await sb.from('statements').delete().eq('id', st.id);
+  if (error) throw error;
 }
 
 export async function saveReceipt(r) {
@@ -87,9 +123,9 @@ export async function deleteReceipt(r) {
   if (error) throw error;
 }
 
-export async function readAgain(id) {
-  await sb.from('receipts').update({ status: 'processing', error: null }).eq('id', id);
-  const { data, error } = await sb.functions.invoke('extract', { body: { id } });
+export async function readAgain(id, kind = 'receipt') {
+  await sb.from(kind === 'statement' ? 'statements' : 'receipts').update({ status: 'processing', error: null }).eq('id', id);
+  const { data, error } = await sb.functions.invoke('extract', { body: { id, kind } });
   if (error) {
     let msg = error.message;
     try { msg = (await error.context.json()).error || msg; } catch {}
@@ -191,10 +227,11 @@ async function prepareFile(file) {
   return { blob, type: 'image/jpeg', ext: 'jpg' };
 }
 
-export async function addFiles(files, userId) {
+// kind: 'receipt' or 'statement' (agency statement).
+export async function addFiles(files, userId, kind = 'receipt') {
   for (const file of files) {
     const prepared = await prepareFile(file);
-    const item = { id: crypto.randomUUID(), userId, ...prepared, added: new Date().toISOString() };
+    const item = { id: crypto.randomUUID(), userId, kind, ...prepared, added: new Date().toISOString() };
     await outbox('readwrite', (s) => s.put(item));
   }
   return flushOutbox();
@@ -209,14 +246,15 @@ export function flushOutbox() {
       const items = await queued();
       if (!items.length || !navigator.onLine) return;
       for (const item of items) {
-        const path = `${item.userId}/${item.id}.${item.ext}`;
+        const statement = item.kind === 'statement';
+        const path = `${item.userId}/${statement ? 'st-' : ''}${item.id}.${item.ext}`;
         const up = await sb.storage.from('receipts').upload(path, item.blob, { contentType: item.type, upsert: true });
         if (up.error) { console.warn('upload failed', up.error); return; }
-        const ins = await sb.from('receipts').upsert({ id: item.id, user_id: item.userId, file_path: path, file_type: item.type, status: 'processing' });
+        const ins = await sb.from(statement ? 'statements' : 'receipts').upsert({ id: item.id, user_id: item.userId, file_path: path, file_type: item.type, status: 'processing' });
         if (ins.error) { console.warn('insert failed', ins.error); return; }
         await outbox('readwrite', (s) => s.delete(item.id));
         // Reading takes a few seconds; the row updates through realtime when done.
-        sb.functions.invoke('extract', { body: { id: item.id } }).catch(console.warn);
+        sb.functions.invoke('extract', { body: { id: item.id, kind: item.kind || 'receipt' } }).catch(console.warn);
       }
     }
   })().finally(() => { flushing = null; });

@@ -1,5 +1,5 @@
-// Reads a receipt photo (or PDF) with Claude and fills in the receipt row.
-// Body: { "id": "<receipt id>" }. "Verify JWT with legacy secret" is off: the function checks the
+// Reads a receipt photo (or PDF) with Claude and fills in the receipt row, or an agency statement into the statement row.
+// Body: { "id": "<receipt id>" } or { "id": "<statement id>", "kind": "statement" }. "Verify JWT with legacy secret" is off: the function checks the
 // signed-in user itself and runs as that user, so row-level security decides what it may read and change.
 // Secret needed: ANTHROPIC_API_KEY (Edge Functions > Secrets).
 
@@ -91,6 +91,69 @@ Country: determine it from the store's address. Use, in this order: a country na
 Pick the category that fits best:
 ${Object.entries(CATEGORY_EXAMPLES).map(([k, v]) => `- ${k}: ${v}`).join('\n')}`;
 
+const STATEMENT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['is_statement', 'agency', 'agency_country', 'agency_address', 'statement_no', 'statement_date', 'currency', 'total_paid', 'lines', 'issues'],
+  properties: {
+    is_statement: { type: 'boolean', description: 'False when this is not a payment statement or self-billing from an agency.' },
+    agency: { ...str, description: 'Name of the model agency that pays.' },
+    agency_country: { ...str, description: 'ISO 3166-1 alpha-2 country of the agency, from its address.' },
+    agency_address: { ...str, description: 'Address of the agency as printed.' },
+    statement_no: { ...str, description: 'Payment / statement number.' },
+    statement_date: { ...str, description: 'Date of the statement or payment, YYYY-MM-DD.' },
+    currency: { ...str, description: 'ISO 4217 code.' },
+    total_paid: { ...num, description: 'Amount paid out to the model.' },
+    lines: {
+      type: 'array',
+      description: 'One line per job (per client job and per fee type). Deductions belong to the job they are for.',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['job_date', 'client', 'description', 'invoice_no', 'kind', 'fee', 'vat_rate', 'vat', 'expenses', 'deductions', 'total'],
+        properties: {
+          job_date: { ...str, description: 'Date of the job, YYYY-MM-DD.' },
+          client: { ...str, description: 'The client the job was for.' },
+          description: { ...str, description: 'Short English description of the job, e.g. "Buy-out extension, TV campaign".' },
+          invoice_no: { ...str, description: 'Invoice number(s) shown for the job, client and/or model invoice.' },
+          kind: { type: 'string', enum: ['day_rate', 'usage', 'buyout', 'day_rate_usage', 'overtime', 'travel', 'other'] },
+          fee: { ...num, description: 'The model fee for this job before deductions, excluding VAT.' },
+          vat_rate: { ...num, description: 'VAT percentage charged on the fee (0 when none).' },
+          vat: { ...num, description: 'VAT amount on the fee (0 when none).' },
+          expenses: { ...num, description: 'Expenses reimbursed to the model on top of the fee (0 when none).' },
+          deductions: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['type', 'label', 'amount', 'vat', 'reverse_charge'],
+              properties: {
+                type: { type: 'string', enum: ['agency_fee', 'website', 'transport', 'tax_withheld', 'other'] },
+                label: { type: 'string', description: 'As printed, e.g. "Agency fee 25%", "Website", "Uber", "Withholding tax".' },
+                amount: { type: 'number', description: 'Deducted amount as a positive number, excluding VAT.' },
+                vat: { ...num, description: 'VAT the agency charges on this deduction (0 when none).' },
+                reverse_charge: { type: 'boolean', description: 'True when the agency charges this without VAT under reverse charge.' },
+              },
+            },
+          },
+          total: { ...num, description: 'Amount paid for this line: fee + VAT + expenses - deductions.' },
+        },
+      },
+    },
+    issues: { type: 'array', items: { type: 'string' }, description: 'Short English notes on anything unclear or guessed.' },
+  },
+};
+
+const STATEMENT_SYSTEM = `You read payment statements from model agencies for the administration of a self-employed model based in the Netherlands.
+Agencies pay the model for jobs and deduct their agency fee and sometimes costs (website, Uber/transport) or tax withheld.
+Extract exactly what is printed. Never invent amounts; use null when unreadable and say so in issues.
+Fees: day rate / work day / model rate = day_rate; usage, licence = usage; buy-out, buyout, extension of buy-out (verlenging) = buyout.
+Deductions are positive amounts. A negative line such as "AGENCY FEE EUR -500" is a deduction of 500 on the job it belongs to, not a separate job.
+If the PDF also contains the agency's own invoice for its fee, that is the same fee as the deduction: do not count it twice. When that invoice or the statement says reverse charge / VAT free / tax liability transferred, set reverse_charge true on the deduction.
+Dutch terms: BTW = VAT, Netto = net, Inhouding = deduction, Uitbetaling = payment. Dates in Europe are day-month-year.
+Agency country from its address, postcode, phone prefix or VAT number (NL..B01, ATU..., DE..., GB..., FR...).
+Amounts are numbers with a dot as decimal separator.`;
+
 // ECB reference rate (EUR per 1 unit of currency) on the date, or the last business day before it.
 async function fxRate(currency: string, date: string): Promise<{ rate: number; date: string | null } | null> {
   if (currency === 'EUR') return { rate: 1, date: null };
@@ -106,6 +169,70 @@ async function fxRate(currency: string, date: string): Promise<{ rate: number; d
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+async function fileBlock(supabase: any, path: string, type: string | null) {
+  const { data: file, error } = await supabase.storage.from('receipts').download(path);
+  if (error || !file) throw new Error(`Download failed: ${error?.message}`);
+  const b64 = encodeBase64(new Uint8Array(await file.arrayBuffer()));
+  const mediaType = type || file.type || 'image/jpeg';
+  return mediaType === 'application/pdf'
+    ? { type: 'document' as const, source: { type: 'base64' as const, media_type: 'application/pdf' as const, data: b64 } }
+    : { type: 'image' as const, source: { type: 'base64' as const, media_type: mediaType as 'image/jpeg', data: b64 } };
+}
+
+async function ask(system: string, schema: unknown, source: unknown, text: string) {
+  const client = new Anthropic({ apiKey: Deno.env.get('ANTHROPIC_API_KEY') });
+  const response = await client.beta.messages.create({
+    model: 'claude-opus-5-5',
+    max_tokens: 16000,
+    betas: ['server-side-fallback-2026-07-01'],
+    fallbacks: 'default',
+    output_config: { effort: 'low', format: { type: 'json_schema', schema } },
+    system,
+    messages: [{ role: 'user', content: [source, { type: 'text', text }] }],
+  } as any);
+  if (response.stop_reason === 'refusal') throw new Error('The reader declined this document');
+  const out = response.content.find((b: any) => b.type === 'text') as any;
+  if (!out) throw new Error(`No result (stop reason ${response.stop_reason})`);
+  return JSON.parse(out.text);
+}
+
+async function readStatement(supabase: any, userId: string, id: string) {
+  const { data: row, error: rowErr } = await supabase.from('statements').select('*').eq('id', id).eq('user_id', userId).single();
+  if (rowErr || !row) throw new Error('Statement not found');
+  if (!row.file_path) throw new Error('Statement has no document');
+  const x = await ask(STATEMENT_SYSTEM, STATEMENT_SCHEMA, await fileBlock(supabase, row.file_path, row.file_type), 'Read this agency statement.');
+
+  const issues: string[] = [...(x.issues || [])];
+  if (!x.is_statement) issues.unshift('This does not look like an agency statement.');
+  const isDate = (d: string | null) => /^\d{4}-\d{2}-\d{2}$/.test(d || '');
+  const num = (v: unknown) => (typeof v === 'number' ? round2(v) : null);
+  const lines = (x.lines || []).map((l: any) => ({
+    job_date: isDate(l.job_date) ? l.job_date : null, client: l.client, description: l.description, invoice_no: l.invoice_no,
+    kind: l.kind, fee: num(l.fee), vat_rate: l.vat_rate ?? 0, vat: num(l.vat) ?? 0, expenses: num(l.expenses) ?? 0,
+    deductions: (l.deductions || []).map((d: any) => ({ type: d.type, label: d.label, amount: num(Math.abs(d.amount)), vat: num(d.vat) ?? 0, reverse_charge: !!d.reverse_charge })),
+  }));
+  const lineTotal = (l: any) => (l.fee ?? 0) + l.vat + l.expenses - l.deductions.reduce((s: number, d: any) => s + (d.amount ?? 0) + (d.vat ?? 0), 0);
+  const sum = round2(lines.reduce((s: number, l: any) => s + lineTotal(l), 0));
+  const adds = x.total_paid != null && lines.length > 0 && Math.abs(sum - x.total_paid) <= 0.02 * lines.length;
+  if (x.total_paid != null && lines.length && !adds) issues.push(`Lines add up to ${sum.toFixed(2)}, amount paid is ${Number(x.total_paid).toFixed(2)}.`);
+
+  const date = isDate(x.statement_date) ? x.statement_date : null;
+  const currency = /^[A-Z]{3}$/.test(x.currency || '') ? x.currency : 'EUR';
+  const fx = date ? await fxRate(currency, date) : null;
+  if (currency !== 'EUR' && fx == null) issues.push(`No ECB exchange rate found for ${currency}.`);
+  const complete = x.is_statement && x.agency && date && adds && (currency === 'EUR' || fx != null);
+
+  const update = {
+    status: complete && !issues.length ? 'done' : 'review',
+    agency: x.agency, agency_country: /^[A-Z]{2}$/.test(x.agency_country || '') ? x.agency_country : row.agency_country,
+    agency_address: x.agency_address, statement_no: x.statement_no, statement_date: date, currency,
+    fx_rate: fx?.rate ?? null, fx_date: fx?.date ?? null, total_paid: num(x.total_paid), lines, issues, extraction: x, error: null,
+  };
+  const { data: saved, error: saveErr } = await supabase.from('statements').update(update).eq('id', id).select().single();
+  if (saveErr) throw saveErr;
+  return saved;
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
 
@@ -116,41 +243,20 @@ Deno.serve(async (req) => {
   );
 
   let id = '';
+  let kind = 'receipt';
   try {
-    ({ id } = await req.json());
+    ({ id, kind = 'receipt' } = await req.json());
     const { data: userData } = await supabase.auth.getUser();
     const user = userData?.user;
     if (!user) return json({ error: 'Not signed in' }, 401);
+    if (kind === 'statement') return json(await readStatement(supabase, user.id, id));
 
     const { data: row, error: rowErr } = await supabase
       .from('receipts').select('*').eq('id', id).eq('user_id', user.id).single();
     if (rowErr || !row) return json({ error: 'Receipt not found' }, 404);
     if (!row.file_path) return json({ error: 'Receipt has no photo' }, 400);
 
-    const { data: file, error: fileErr } = await supabase.storage.from('receipts').download(row.file_path);
-    if (fileErr || !file) throw new Error(`Photo download failed: ${fileErr?.message}`);
-    const b64 = encodeBase64(new Uint8Array(await file.arrayBuffer()));
-    const mediaType = row.file_type || file.type || 'image/jpeg';
-
-    const source = mediaType === 'application/pdf'
-      ? { type: 'document' as const, source: { type: 'base64' as const, media_type: 'application/pdf' as const, data: b64 } }
-      : { type: 'image' as const, source: { type: 'base64' as const, media_type: mediaType as 'image/jpeg', data: b64 } };
-
-    const client = new Anthropic({ apiKey: Deno.env.get('ANTHROPIC_API_KEY') });
-    const response = await client.beta.messages.create({
-      model: 'claude-opus-5-5',
-      max_tokens: 16000,
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
-      output_config: { effort: 'low', format: { type: 'json_schema', schema: SCHEMA } },
-      system: SYSTEM,
-      messages: [{ role: 'user', content: [source, { type: 'text', text: 'Read this receipt.' }] }],
-    } as any);
-
-    if (response.stop_reason === 'refusal') throw new Error('The reader declined this image');
-    const text = response.content.find((b: any) => b.type === 'text') as any;
-    if (!text) throw new Error(`No result (stop reason ${response.stop_reason})`);
-    const x = JSON.parse(text.text);
+    const x = await ask(SYSTEM, SCHEMA, await fileBlock(supabase, row.file_path, row.file_type), 'Read this receipt.');
 
     const issues: string[] = [...(x.issues || [])];
     if (x.document_type === 'other') issues.unshift('This does not look like a receipt.');
@@ -189,7 +295,7 @@ Deno.serve(async (req) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(message);
-    if (id) await supabase.from('receipts').update({ status: 'review', error: message }).eq('id', id);
+    if (id) await supabase.from(kind === 'statement' ? 'statements' : 'receipts').update({ status: 'review', error: message }).eq('id', id);
     return json({ error: message }, 500);
   }
 });

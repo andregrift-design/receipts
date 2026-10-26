@@ -2,11 +2,13 @@
 <script type="importmap">{ "imports": { "/src/api.js": "/tools/mock-api.js" } }</script>
 <pre id="out">running…</pre>
 <script type="module">
-import { problems, summarize, splitGross, quarterRange, quarterLabel, vatLabel, usdConversion } from '../src/vat.js';
+import { problems, summarize, splitGross, quarterRange, quarterLabel, vatLabel, usdConversion, lineTotal, statementProblems, summarizeIncome, mergeCategories } from '../src/vat.js';
+import { listStatements } from '/src/api.js';
 import { eurUsdRates } from '/src/api.js';
 import { downloadExcel, downloadPdf, numbered } from '../src/export.js';
 import * as XLSX from 'https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs';
 const out = []; let fail = 0;
+const round = (v) => Math.round(v * 100) / 100;
 const eq = (name, a, b) => { const ok = JSON.stringify(a) === JSON.stringify(b); if (!ok) fail++; out.push(`${ok ? 'PASS' : 'FAIL'} ${name}${ok ? '' : `\n   got ${JSON.stringify(a)}\n   want ${JSON.stringify(b)}`}`); };
 const base = { id: '', status: 'done', doc_type: 'receipt', currency: 'EUR', vat_country: 'NL', created_at: '2026-01-01T00:00:00Z', file_path: 'u/x.png', file_type: 'image/png' };
 const rs = [
@@ -73,6 +75,26 @@ eq('usd excel shell gross', detu.find((r) => r.Store === 'Shell')['Gross USD'], 
 const live = await eurUsdRates('2026-09-01', '2026-09-30');
 const sat = live('2026-09-05'); // a Saturday
 eq('live rate weekend uses Friday', [sat?.date, sat?.rate > 0.8 && sat?.rate < 1.6], ['2026-09-04', true]);
+// Agency statements (made-up data shaped like real ones)
+const sts = await listStatements();
+eq('statement line totals', sts.map((x) => lineTotal(x.lines[0])), [4840, 750]);
+eq('statements complete', sts.map((x) => statementProblems(x)), [[], []]);
+const inc = summarizeIncome(sts);
+eq('income totals', [inc.fee, inc.vat, inc.paid, inc.homeVat, inc.reverseCharge], [5000, 840, 5590, 840, 52.5]);
+eq('income kinds', inc.kinds.map((k) => [k.label, k.amount]), [['Buy-out', 4000], ['Day rate', 1000]]);
+eq('agency fee as expense', inc.categories, [{ category: 'Agency & Management', amount: 250 }]);
+eq('merged categories', mergeCategories([{ category: 'Agency & Management', count: 1, net: 10, vat: 2.1, gross: 12.1 }], inc.categories).map((c) => [c.category, c.gross, c.fromStatements]), [['Agency & Management', 262.1, 250]]);
+eq('bad total flagged', statementProblems({ ...sts[0], total_paid: 4000 }), ['lines don’t add up to the amount paid']);
+await downloadExcel(rs, { ...meta, statements: sts, fileBase: 'inc' });
+const wbi = XLSX.read(await files['inc.xlsx'].arrayBuffer(), { cellDates: true });
+eq('income sheet', wbi.SheetNames, ['Summary', 'Receipts', 'Income']);
+const incRows = XLSX.utils.sheet_to_json(wbi.Sheets.Income);
+eq('income rows', incRows.map((r) => [r.Agency, r['Fee EUR'], r['Agency fee EUR'], r['Reverse charge'] || '', r['Paid EUR']]),
+  [['Alpine Models e.U.', 1000, 250, 'Yes', 750], ['Example Models B.V.', 4000, 0, '', 4840]]);
+const sumi = XLSX.utils.sheet_to_json(wbi.Sheets.Summary, { header: 1 });
+eq('vat position', sumi.find((r) => String(r[0]).startsWith('VAT to'))?.slice(0, 3), ['VAT to pay', null, round(840 - 24.45)]);
+await downloadPdf(rs, { ...meta, statements: sts, fileBase: 'incpdf' }, () => {});
+eq('pdf with income', files['incpdf.pdf'].size > 5000, true);
 let progress = 0;
 await downloadPdf(rs, meta, (n) => { progress = n; });
 const pdf = files['Receipts 2026-Q3.pdf'];

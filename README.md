@@ -12,6 +12,8 @@ Live at **https://andregrift-design.github.io/receipts/**
 - **Read**: the `extract` edge function sends the photo to Claude and fills in document type, store, address, country (from the address), description, category, date, currency, total and one line per VAT rate. Foreign currencies get the ECB rate of the receipt date, stored with the date of that rate.
 - **Check**: a receipt is **Done** when the date, store or description, amount, exchange rate and VAT are filled in and the VAT lines add up to the total. Anything else shows as **Check** with what's missing. The editor shows the photo next to the fields; "Fill" splits the total into net and VAT for the chosen rate.
 - **No receipt?** Upload the payment receipt (card slip, bank screenshot) or tap Enter manually and attach a document later. Each record has a document type: Receipt, Invoice, Payment receipt only, No document. The overview shows how much Dutch VAT rests on payment receipts or no document.
+- **Income**: import agency statements (PDF or photo, any country or currency). Claude reads the agency, country, payment date and per job: client, job, job date, type (day rate, usage, buy-out…), fee, VAT, expenses and deductions (agency fee, website, transport, tax withheld). Statements count in the period of their payment date and are converted at that date. Agency fees charged without VAT by foreign agencies are marked reverse charge.
+- **Overview, income**: income per agency, fees by type, deductions, and the Dutch VAT position (VAT on income minus deductible VAT; reverse charge shown as due and deductible).
 - **Quarter**: Netherlands (21%, 9%, 0%, no VAT, VAT not entered, Dutch VAT to deduct) and foreign VAT (per country and rate, totals per country) shown separately, plus totals per expense category. Downloads: Excel (Summary and Receipts sheets), PDF (overview, list, one page per photo), ZIP (Excel + photos, numbered to match).
 - **US CPA**: on the Quarter page switch to **USD · US CPA**. Every amount is converted on its receipt date (receipt currency to EUR at the ECB rate, then EUR to USD at the ECB rate of that day). Choose **Year** for the whole calendar year. Excel and PDF then come out in USD, with the rate and rate date per receipt.
 - **Accountant**: Settings → Share with your accountant → their email. They create an account with that email at the same address and see your receipts and overviews read-only.
@@ -36,7 +38,7 @@ GitHub Pages from `main` of `andregrift-design/receipts`. To ship a change: comm
 
 | File | Purpose |
 | --- | --- |
-| `src/main.js` | Screens: sign-in, list, editor, quarter, settings |
+| `src/main.js` | Screens: sign-in, receipts, income (agency statements), overview, settings |
 | `src/api.js` | Supabase calls, photo resize, offline upload queue |
 | `src/vat.js` | VAT categories, expense categories, checks, quarter totals |
 | `src/export.js` | Excel, PDF and ZIP export |

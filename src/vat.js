@@ -33,6 +33,8 @@ export const countryName = (code) => COUNTRIES[code] || code || 'Unknown country
 // Standard rates the rate picker offers per country (anything else can be typed).
 export const RATES = { NL: [21, 9, 0], BE: [21, 12, 6, 0], DE: [19, 7, 0], FR: [20, 10, 5.5, 0], GB: [20, 5, 0] };
 
+// Negative for display, without showing -0.00.
+export const neg = (v) => (Number(v) ? -Number(v) : 0);
 export const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 export const isNum = (v) => v !== null && v !== undefined && v !== '' && !Number.isNaN(Number(v));
 
@@ -220,3 +222,107 @@ export function usdConversion(usdLookup) {
   return { factor: (r) => rate(r)?.rate ?? null, rate };
 }
 export const eurConversion = { factor: fxFor, rate: (r) => (r.currency === 'EUR' ? { rate: 1, date: null } : fxFor(r) == null ? null : { rate: fxFor(r), date: r.fx_date || null }) };
+
+// ---------- agency statements (income) ----------
+
+export const JOB_KINDS = {
+  day_rate: 'Day rate', usage: 'Usage', buyout: 'Buy-out', day_rate_usage: 'Day rate + usage',
+  overtime: 'Overtime', travel: 'Travel day', other: 'Other',
+};
+
+export const DEDUCTION_TYPES = {
+  agency_fee: 'Agency fee', website: 'Website', transport: 'Transport (Uber, taxi)',
+  tax_withheld: 'Tax withheld', other: 'Other deduction',
+};
+
+// Deductions are business costs; they count as expenses in these categories. Tax withheld is not a cost.
+const DEDUCTION_CATEGORY = { agency_fee: 'Agency & Management', website: 'Marketing & Promotion', transport: 'Transportation', other: 'Other' };
+
+const n = (v) => (isNum(v) ? Number(v) : 0);
+export const deductionTotal = (d) => n(d.amount) + n(d.vat);
+// What a line pays out: fee + VAT + expenses - deductions (and VAT on them).
+export const lineTotal = (l) => round2(n(l.fee) + n(l.vat) + n(l.expenses) - (l.deductions || []).reduce((s, d) => s + deductionTotal(d), 0));
+
+// Converting a statement uses the same rate rules as a receipt, at the statement (payment) date.
+export const statementAsReceipt = (st) => ({ currency: st.currency, fx_rate: st.fx_rate, fx_date: st.fx_date, receipt_date: st.statement_date });
+
+export function statementProblems(st) {
+  const out = [];
+  if (!st.agency) out.push('agency');
+  if (!st.statement_date) out.push('statement date');
+  if (!st.currency) out.push('currency');
+  if (st.currency && st.currency !== 'EUR' && !isNum(st.fx_rate)) out.push('exchange rate');
+  const lines = st.lines || [];
+  if (!lines.length) out.push('job lines');
+  if (lines.some((l) => !isNum(l.fee))) out.push('fee on every line');
+  if (lines.some((l) => (l.deductions || []).some((d) => !isNum(d.amount)))) out.push('deduction amounts');
+  const sum = round2(lines.reduce((s, l) => s + lineTotal(l), 0));
+  if (lines.length && isNum(st.total_paid) && Math.abs(sum - Number(st.total_paid)) > 0.02 * lines.length) out.push('lines don’t add up to the amount paid');
+  return out;
+}
+
+// Income for a period, converted with factor (EUR by default). Statements count in the period of their statement date.
+export function summarizeIncome(statements, factor = fxFor) {
+  const agencies = new Map();
+  const kinds = new Map();
+  const deductions = new Map();
+  const categories = new Map();
+  const lines = [];
+  let fee = 0, vat = 0, expenses = 0, paid = 0, homeVat = 0, deductionVat = 0, reverseCharge = 0;
+  for (const st of statements) {
+    const f = factor(statementAsReceipt(st));
+    if (f == null) continue;
+    const c = (v) => n(v) * f;
+    const home = (st.agency_country || HOME_COUNTRY) === HOME_COUNTRY;
+    const key = `${st.agency || 'Unknown agency'}|${st.agency_country || ''}`;
+    if (!agencies.has(key)) agencies.set(key, { agency: st.agency || 'Unknown agency', country: st.agency_country, statements: new Set(), fee: 0, vat: 0, expenses: 0, deductions: 0, paid: 0 });
+    const a = agencies.get(key);
+    a.statements.add(st.id);
+    for (const l of st.lines || []) {
+      const ded = (l.deductions || []).reduce((s, d) => s + deductionTotal(d), 0);
+      const row = { statement: st, line: l, fee: round2(c(l.fee)), vat: round2(c(l.vat)), expenses: round2(c(l.expenses)), deductions: round2(c(ded)), paid: round2(c(lineTotal(l))) };
+      lines.push(row);
+      a.fee += row.fee; a.vat += row.vat; a.expenses += row.expenses; a.deductions += row.deductions; a.paid += row.paid;
+      fee += row.fee; vat += row.vat; expenses += row.expenses; paid += row.paid;
+      if (home) homeVat += row.vat;
+      const k = l.kind || 'other';
+      kinds.set(k, (kinds.get(k) || 0) + row.fee);
+      for (const d of l.deductions || []) {
+        const t = d.type || 'other';
+        deductions.set(t, (deductions.get(t) || 0) + c(d.amount));
+        if (t !== 'tax_withheld') categories.set(DEDUCTION_CATEGORY[t] || 'Other', (categories.get(DEDUCTION_CATEGORY[t] || 'Other') || 0) + c(d.amount));
+        if (home) deductionVat += c(d.vat);
+        // Reverse charge: a foreign agency charges its fee without VAT; Dutch VAT on it is due and deductible at the same time.
+        if (!home && d.reverse_charge && t !== 'tax_withheld') reverseCharge += c(d.amount) * 0.21;
+      }
+    }
+  }
+  const r = (m) => [...m.entries()].map(([k, v]) => ({ key: k, amount: round2(v) }));
+  return {
+    count: statements.length,
+    lines,
+    agencies: [...agencies.values()].map((a) => ({ ...a, count: a.statements.size, fee: round2(a.fee), vat: round2(a.vat), expenses: round2(a.expenses), deductions: round2(a.deductions), paid: round2(a.paid) }))
+      .sort((x, y) => y.fee - x.fee),
+    kinds: r(kinds).map((k) => ({ ...k, label: JOB_KINDS[k.key] || k.key })),
+    deductions: r(deductions).map((d) => ({ ...d, label: DEDUCTION_TYPES[d.key] || d.key })),
+    categories: r(categories).map((x) => ({ category: x.key, amount: x.amount })),
+    fee: round2(fee), vat: round2(vat), expenses: round2(expenses), paid: round2(paid),
+    homeVat: round2(homeVat), // Dutch VAT on income: to pay
+    deductionVat: round2(deductionVat), // Dutch VAT on deductions by Dutch agencies: deductible
+    reverseCharge: round2(reverseCharge), // due and deductible
+    missingRate: statements.filter((st) => factor(statementAsReceipt(st)) == null),
+  };
+}
+
+// Receipt categories plus agency deductions (gross), largest first.
+export function mergeCategories(receiptCats, incomeCats) {
+  const m = new Map(receiptCats.map((c) => [c.category, { ...c, fromStatements: 0 }]));
+  for (const x of incomeCats) {
+    const e = m.get(x.category) || { category: x.category, count: 0, net: 0, vat: 0, gross: 0, fromStatements: 0 };
+    e.fromStatements = round2(e.fromStatements + x.amount);
+    e.net = round2(e.net + x.amount);
+    e.gross = round2(e.gross + x.amount);
+    m.set(x.category, e);
+  }
+  return [...m.values()].sort((a, b) => b.gross - a.gross);
+}
