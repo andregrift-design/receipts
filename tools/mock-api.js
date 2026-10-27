@@ -13,7 +13,7 @@ let rows = [
 // Made-up statements with the same shape as real ones (one Dutch agency with VAT, one foreign agency with a reverse-charged fee).
 const statementsData = [
   { id: 's1', user_id: 'me', status: 'done', agency: 'Example Models B.V.', agency_country: 'NL', agency_address: 'Voorbeeldstraat 1, 1000 AA Amsterdam',
-    statement_no: 'PAY-000001', statement_date: '2026-07-01', booking_date: '2026-07-02', period: '2026-Q3', currency: 'EUR', fx_rate: 1, total_paid: 4840, issues: [], file_path: 'me/st-s1.png', file_type: 'image/png',
+    statement_no: 'PAY-000001', statement_date: '2026-07-01', booking_date: '2026-07-02', period: '2026-Q3', currency: 'EUR', fx_rate: 1, total_paid: 4840, issues: [], file_path: 'me/st-s1.pdf', file_type: 'application/pdf',
     lines: [{ job_date: '2026-06-10', client: 'Client A Ltd', description: 'Buy-out extension, campaign', invoice_no: 'INV-000001', kind: 'buyout', fee: 4000, vat_rate: 21, vat: 840, expenses: 0, deductions: [] }],
     created_at: '2026-07-02T10:00:00Z', updated_at: '1' },
   { id: 's2', user_id: 'me', status: 'done', agency: 'Alpine Models e.U.', agency_country: 'AT', agency_address: 'Beispielgasse 2, 6020 Innsbruck',
@@ -43,7 +43,16 @@ export const saveReceipt = async (r) => { const s = { ...r, status: problems(r).
 export const deleteReceipt = async () => {};
 export const readAgain = async (id) => rows.find((r) => r.id === id);
 export const fileUrl = async () => '../icons/icon-512.png';
-export const fileBlob = async () => (await fetch('/icons/icon-512.png')).blob();
+// PDFs: a made-up two-page statement, generated on the fly.
+export const fileBlob = async (path = '') => {
+  if (!path.endsWith('.pdf')) return (await fetch('/icons/icon-512.png')).blob();
+  const { jsPDF } = await import('https://cdn.jsdelivr.net/npm/jspdf@2.5.2/+esm');
+  const doc = new jsPDF();
+  doc.setFontSize(20); doc.text('Example Models Agency - statement PAY-000001', 15, 25);
+  doc.setFontSize(12); doc.text('Job: Example shoot  ·  Fee EUR 4,000.00', 15, 40);
+  doc.addPage(); doc.text('Page 2: deductions', 15, 25);
+  return doc.output('blob');
+};
 export const ecbRate = async () => ({ rate: 0.9, date: '2026-07-20' });
 // The real function (the ?real query avoids the import map that points /src/api.js here).
 export { eurUsdRates } from '/src/api.js?real';

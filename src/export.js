@@ -1,7 +1,8 @@
 // Exports of a period, in the same order as the overview:
 // 1 Expenses (Netherlands, foreign per country, per category), 2 Income (Dutch, foreign agencies, fees, deductions),
 // 3 Dutch VAT position, 4 corrections and late entries, then the details.
-// Excel: Summary, Expenses and Income sheets. PDF: overview, details, one page per receipt photo. ZIP: Excel + all documents.
+// Excel: Summary, Expenses and Income sheets. PDF: overview, details, optionally the receipts and statements.
+// ZIP: the Excel plus the receipts and/or statements asked for.
 import { vatLabel, countryName, DOC_TYPES, weakProof, fmtDate, money, neg, statementAsReceipt, lineTotal, JOB_KINDS, round2,
   periodLabel, naturalPeriod, HOME_COUNTRY, ANNUAL_LABEL } from './vat.js';
 import { fileBlob } from './api.js';
@@ -10,6 +11,8 @@ const XLSX_URL = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs';
 const JSPDF_URL = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.2/+esm';
 const AUTOTABLE_URL = 'https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/+esm';
 const JSZIP_URL = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm';
+const PDFJS_URL = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs';
+const PDFJS_WORKER_URL = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs';
 
 const safe = (s) => String(s || '').replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '').slice(0, 40);
 
@@ -327,26 +330,42 @@ export async function downloadPdf(d, meta, onProgress) {
     after();
   }
 
-  // One page per receipt photo, numbered like the table. Only when asked for (meta.photos).
-  const photos = meta.photos ? numbered(d.rec.filter((r) => !r._reversal)).filter((n) => n.r.file_path) : [];
+  // Optional document pages: receipts numbered like the table (meta.photos), then agency statements (meta.statements).
+  const recDocs = meta.photos ? numbered(d.rec.filter((r) => !r._reversal)).filter((n) => n.r.file_path)
+    .map(({ r, no }) => ({ x: r, title: `No. ${no}  ·  ${r.receipt_date ? fmtDate(r.receipt_date) : 'no date'}  ·  ${r.store || r.description || ''}  ·  ${pm(r.total, r.currency || 'EUR')}`,
+      sub: weakProof(r) ? DOC_TYPES[r.doc_type] : '' })) : [];
+  const stDocs = meta.statements ? d.sts.filter((st) => !st._reversal && st.file_path)
+    .sort((a, b) => (a.booking_date || '').localeCompare(b.booking_date || ''))
+    .map((st) => ({ x: st, title: `Statement  ·  ${st.agency || ''}${st.statement_no ? ` ${st.statement_no}` : ''}  ·  imported ${st.booking_date ? fmtDate(st.booking_date) : 'no date'}`,
+      sub: st.statement_date ? `Payment date ${fmtDate(st.statement_date)}` : '' })) : [];
+  const docs = [...recDocs, ...stDocs];
   let done = 0;
-  for (const n of photos) {
-    onProgress?.(++done, photos.length);
-    doc.addPage();
-    const r = n.r;
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-    doc.text(`No. ${n.no}  ·  ${r.receipt_date ? fmtDate(r.receipt_date) : 'no date'}  ·  ${r.store || r.description || ''}  ·  ${pm(r.total, r.currency || 'EUR')}`, 14, 14, { maxWidth: W - 28 });
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-    if (weakProof(r)) doc.text(DOC_TYPES[r.doc_type], 14, 19);
-    if (r.file_type === 'application/pdf') { doc.text('This receipt is a PDF: see the ZIP export or the app.', 14, 30); continue; }
+  for (const it of docs) {
+    onProgress?.(++done, docs.length);
+    const head = (extra = '') => {
+      doc.addPage();
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(...ink);
+      doc.text(sp(it.title + extra), 14, 14, { maxWidth: W - 28 });
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+      if (it.sub) doc.text(it.sub, 14, 19);
+    };
+    const place = (url, fmt, iw, ih) => {
+      const scale = Math.min((W - 28) / iw, (H - 36) / ih);
+      doc.addImage(url, fmt, (W - iw * scale) / 2, 24, iw * scale, ih * scale);
+    };
     try {
-      const blob = await fileBlob(r.file_path);
-      const bmp = await createImageBitmap(blob);
-      const scale = Math.min((W - 28) / bmp.width, (H - 36) / bmp.height);
-      const w = bmp.width * scale, h = bmp.height * scale;
-      doc.addImage(await blobToDataUrl(blob), r.file_type === 'image/png' ? 'PNG' : 'JPEG', (W - w) / 2, 24, w, h);
+      const blob = await fileBlob(it.x.file_path);
+      if (it.x.file_type === 'application/pdf' || /\.pdf$/i.test(it.x.file_path)) {
+        const pages = await pdfPages(blob);
+        pages.forEach((pg, i) => { head(pages.length > 1 ? `  ·  page ${i + 1} of ${pages.length}` : ''); place(pg.url, 'JPEG', pg.w, pg.h); });
+      } else {
+        head();
+        const bmp = await createImageBitmap(blob);
+        place(await blobToDataUrl(blob), it.x.file_type === 'image/png' ? 'PNG' : 'JPEG', bmp.width, bmp.height);
+      }
     } catch (e) {
-      doc.text(`Photo could not be loaded (${e.message}).`, 14, 30);
+      head();
+      doc.text(`Document could not be loaded (${e.message}).`, 14, 30);
     }
   }
 
@@ -358,14 +377,40 @@ export async function downloadPdf(d, meta, onProgress) {
   download(doc.output('blob'), `${meta.fileBase}.pdf`);
 }
 
+// PDF pages as JPEG images (about 150 dpi), so a PDF document can sit in the report like a photo.
+async function pdfPages(blob) {
+  const pdfjs = await import(PDFJS_URL);
+  if (!pdfjs.GlobalWorkerOptions.workerSrc) {
+    // A worker can't start from another origin; a same-origin blob URL of the CDN file can.
+    const code = await (await fetch(PDFJS_WORKER_URL)).text();
+    pdfjs.GlobalWorkerOptions.workerSrc = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
+  }
+  const pdf = await pdfjs.getDocument({ data: new Uint8Array(await blob.arrayBuffer()) }).promise;
+  const out = [];
+  for (let i = 1; i <= Math.min(pdf.numPages, 20); i++) {
+    const page = await pdf.getPage(i);
+    const vp = page.getViewport({ scale: 2 });
+    const canvas = document.createElement('canvas');
+    canvas.width = vp.width; canvas.height = vp.height;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // Print intent renders without waiting for animation frames, so it also finishes in a background tab.
+    await page.render({ canvasContext: ctx, viewport: vp, intent: 'print' }).promise;
+    out.push({ url: canvas.toDataURL('image/jpeg', 0.85), w: vp.width, h: vp.height });
+  }
+  await pdf.destroy();
+  return out;
+}
+
 // ---------- ZIP ----------
 
 export async function downloadZip(d, meta, onProgress) {
   const { default: JSZip } = await import(JSZIP_URL);
   const zip = new JSZip();
-  zip.file(`${meta.fileBase}.xlsx`, await buildExcel(d, { ...meta, zip: true }));
-  const list = numbered(d.rec.filter((r) => !r._reversal)).filter((n) => n.file);
-  const sts = d.sts.filter((st) => !st._reversal && st.file_path);
+  zip.file(`${meta.fileBase}.xlsx`, await buildExcel(d, { ...meta, zip: !!meta.photos }));
+  // Only the documents asked for: receipts (meta.photos) and/or statements (meta.statements).
+  const list = meta.photos ? numbered(d.rec.filter((r) => !r._reversal)).filter((n) => n.file) : [];
+  const sts = meta.statements ? d.sts.filter((st) => !st._reversal && st.file_path) : [];
   let done = 0;
   for (const n of list) { zip.file(`receipts/${n.file}`, await fileBlob(n.r.file_path)); onProgress?.(++done, list.length + sts.length); }
   for (const st of sts) {
