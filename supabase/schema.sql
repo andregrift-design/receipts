@@ -229,3 +229,28 @@ exception when duplicate_object then null; end $$;
 -- Fill period for existing rows.
 update public.receipts set receipt_date = receipt_date where period is null and receipt_date is not null;
 update public.statements set booking_date = booking_date where period is null and booking_date is not null;
+
+-- Feedback: comments left from any page, read in Settings. Belongs to the account it was written in;
+-- everyone who can view that account reads it, the owner and the author can mark it done or delete it.
+create table if not exists public.feedback (
+  id           uuid        primary key default gen_random_uuid(),
+  owner_id     uuid        not null references auth.users on delete cascade,
+  author_id    uuid        not null default auth.uid() references auth.users on delete cascade,
+  author_email text        not null default lower(coalesce(auth.jwt() ->> 'email', '')),
+  page         text        not null default '',
+  version      text        not null default '',
+  message      text        not null check (length(trim(message)) > 0),
+  done         boolean     not null default false,
+  created_at   timestamptz not null default now()
+);
+alter table public.feedback enable row level security;
+drop policy if exists "read if can view" on public.feedback;
+create policy "read if can view" on public.feedback for select using (public.can_view(owner_id::text));
+drop policy if exists "write if can view" on public.feedback;
+create policy "write if can view" on public.feedback for insert
+  with check (author_id = auth.uid() and public.can_view(owner_id::text));
+drop policy if exists "owner or author updates" on public.feedback;
+create policy "owner or author updates" on public.feedback for update
+  using (auth.uid() in (owner_id, author_id)) with check (auth.uid() in (owner_id, author_id));
+drop policy if exists "owner or author deletes" on public.feedback;
+create policy "owner or author deletes" on public.feedback for delete using (auth.uid() in (owner_id, author_id));

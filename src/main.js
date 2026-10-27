@@ -10,8 +10,9 @@ import { OverviewPage } from './overview.js';
 import { SettingsPage } from './settings.js';
 import { Spotlight } from './search.js';
 import { Celebration, countAdded } from './confetti.js';
+import { FeedbackDialog } from './feedback.js';
 
-const VERSION = '2.6';
+const VERSION = '2.7';
 
 // ---------- sign in ----------
 
@@ -134,6 +135,7 @@ function Shell({ user }) {
   const [searching, setSearching] = useState(false);
   const [pendingStatements, setPendingStatements] = useState(null);
   const [celebrate, setCelebrate] = useState(false);
+  const [feedback, setFeedback] = useState(false);
   const added = (n) => { if (countAdded(user.id, n)) setCelebrate(true); };
 
   const email = (user.email || '').toLowerCase();
@@ -208,7 +210,7 @@ function Shell({ user }) {
   const page = { '': 'home', home: 'home', r: 'expenses', expenses: 'expenses', s: 'income', income: 'income', quarter: 'overview', overview: 'overview', settings: 'settings' }[view] || 'home';
   const filed = useMemo(() => new Set(periods.map((p) => p.period)), [periods]);
   const ctx = {
-    user, mine, ownerLabel, receipts: receipts || [], statements: statements || [], periods, filed, viewers, sharedWithMe,
+    user, ownerId, mine, ownerLabel, receipts: receipts || [], statements: statements || [], periods, filed, viewers, sharedWithMe,
     queue, reload, reloadShares, addFiles, addManual, removeQueued,
     importStatements: (files) => files.length && setPendingStatements(files),
   };
@@ -255,6 +257,7 @@ function Shell({ user }) {
           ${tab('settings', 'Settings', Icon.settings)}
         </nav>
         <div class="top-right">
+          <button class="searchbtn fbbtn" onClick=${() => setFeedback(true)} aria-label="Feedback" title="Leave feedback about this page">${Icon.feedback}<span>Feedback</span></button>
           <button class="searchbtn" onClick=${() => setSearching(true)} aria-label="Search">${Icon.search}<span>Search</span><kbd>⌘K</kbd></button>
           ${accounts.length > 1 && html`
             <select class="account" value=${ownerId} onChange=${(e) => setOwner(e.target.value)} aria-label="Whose data">
@@ -266,6 +269,11 @@ function Shell({ user }) {
       ${!mine && html`<div class="banner info">You’re viewing ${ownerLabel} (read-only).</div>`}
       <main class="main">${body}</main>
       ${dragging && html`<div class="dropzone">${page === 'income' ? 'Drop agency statements to import them' : 'Drop receipts to add them'}</div>`}
+      ${feedback && html`<${FeedbackDialog} ownerId=${ownerId} version=${VERSION} onClose=${() => setFeedback(false)}
+        page=${view === 'r' ? `Receipt: ${(receipts || []).find((x) => x.id === arg)?.store || 'receipt'}`
+          : view === 's' ? `Statement: ${(statements || []).find((x) => x.id === arg)?.agency || 'statement'}`
+          : { home: 'Home', expenses: 'Expenses', income: 'Income', overview: 'Overview', settings: 'Settings' }[page]
+            + (page === 'overview' && arg ? ` ${arg.replace('-', ' Q').replace(' Q0', '')}` : '')} />`}
       ${celebrate && html`<${Celebration} onClose=${() => setCelebrate(false)} />`}
       ${searching && html`<${Spotlight} ctx=${ctx} onClose=${() => setSearching(false)} />`}
       ${pendingStatements && html`<${BookingDialog} files=${pendingStatements} filed=${filed}

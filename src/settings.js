@@ -2,6 +2,7 @@
 import { html, useState, useEffect } from './ui.js';
 import * as api from './api.js';
 import { fmtDate, periodLabel } from './vat.js';
+import { FeedbackList } from './feedback.js';
 
 export function SettingsPage({ ctx, version }) {
   const { user, viewers, sharedWithMe, periods } = ctx;
@@ -28,6 +29,7 @@ export function SettingsPage({ ctx, version }) {
       </section>
 
       ${api.passkeysSupported() && html`<${Passkeys} />`}
+      <${FeedbackList} ownerId=${ctx.ownerId} userId=${ctx.user.id} />
 
       <section class="card">
         <h3>Share with your accountants</h3>

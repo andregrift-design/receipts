@@ -268,6 +268,29 @@ export async function removeShare(ownerId, email) {
   if (error) throw error;
 }
 
+// ---------- feedback ----------
+
+export async function listFeedback(ownerId) {
+  const { data, error } = await sb.from('feedback').select('*').eq('owner_id', ownerId).order('created_at', { ascending: false });
+  if (error) throw error;
+  return data;
+}
+
+export async function addFeedback(ownerId, page, version, message) {
+  const { error } = await sb.from('feedback').insert({ owner_id: ownerId, page, version, message: message.trim() });
+  if (error) throw error;
+}
+
+export async function setFeedbackDone(id, done) {
+  const { error } = await sb.from('feedback').update({ done }).eq('id', id);
+  if (error) throw error;
+}
+
+export async function deleteFeedback(id) {
+  const { error } = await sb.from('feedback').delete().eq('id', id);
+  if (error) throw error;
+}
+
 // ---------- adding photos (works offline: queued in IndexedDB) ----------
 
 function idb() {
