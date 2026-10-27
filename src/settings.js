@@ -120,7 +120,7 @@ function About({ version }) {
           <li><strong>Reading documents:</strong> photos and PDFs are sent to Anthropic (Claude) to read the amounts, VAT and dates. Anthropic does not use this data to train its models.</li>
           <li><strong>Exchange rates:</strong> fetched from Frankfurter (European Central Bank rates). Only a currency and a date are sent, nothing about you.</li>
           <li><strong>The app itself</strong> is served by GitHub Pages. No ads, no tracking, no analytics cookies. This device keeps a copy of the app and of photos waiting to upload, so VH5 works offline.</li>
-          <li>Want your data exported or deleted? Download the quarters you need, then ask EAGER Management B.V. to delete your account.</li>
+          <li>Want your data exported or deleted? Download the quarters you need, then ask EAGER Management B.V. to delete your account via <a href="mailto:info@eagermgt.com">info@eagermgt.com</a>.</li>
         </ul>
       </details>
       <details>
