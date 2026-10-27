@@ -167,6 +167,8 @@ const Section = ({ title, note, children }) => html`
 
 function ExpensesSection({ d, m }) {
   const { s, cats } = d;
+  // Foreign receipts marked annual-only sit in the annual block; the foreign card says so.
+  const foreignAnnual = s.annual.rows.filter((row) => !row.receipt._reversal && (row.receipt.vat_country || HOME_COUNTRY) !== HOME_COUNTRY).length;
   const dash = (g, v) => (g.key.endsWith(':unknown') ? '–' : m(v));
   const vatRow = (g, label) => html`<tr><td>${label}</td><td class="n">${g.count}</td><td class="n">${dash(g, g.net)}</td><td class="n">${dash(g, g.vat)}</td><td class="n">${m(g.gross)}</td></tr>`;
   const head = html`<thead><tr><th>VAT category</th><th class="n">Receipts</th><th class="n">Net</th><th class="n">VAT</th><th class="n">Gross</th></tr></thead>`;
@@ -194,7 +196,8 @@ function ExpensesSection({ d, m }) {
             <tfoot><tr><td>Total foreign</td><td class="n">${s.foreign.count}</td><td class="n">${m(s.foreign.net)}</td><td class="n">${m(s.foreign.vat)}</td><td class="n">${m(s.foreign.gross)}</td></tr></tfoot>
           </table>
           <p class="hint">Foreign VAT (${m(s.foreignVat)}) can’t be deducted on the Dutch return; within the EU it can be reclaimed from that country.</p>`
-          : html`<p class="hint">No foreign receipts.</p>`}
+          : !foreignAnnual && html`<p class="hint">No foreign receipts.</p>`}
+        ${foreignAnnual > 0 && html`<p class="hint">${foreignAnnual} foreign receipt${foreignAnnual === 1 ? ' is' : 's are'} marked as annual costs only, so ${foreignAnnual === 1 ? 'it is' : 'they are'} listed under “Annual costs only” below, not here. Untick “Annual costs only” on a receipt to show it here.</p>`}
       </div>
       ${s.annual.count > 0 && html`
       <div class="card">

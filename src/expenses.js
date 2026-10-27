@@ -408,7 +408,7 @@ export function ReceiptEditor({ receipt, ctx }) {
 
           <div class="form-section">
             <h3>VAT ${form.vat_country !== HOME_COUNTRY && html`<span class="badge st-review">Foreign: ${countryName(form.vat_country)}</span>`}</h3>
-            ${form.annual_only && html`<p class="hint">Annual costs only: the VAT below is kept for reference and is not used on the VAT return. The full amount counts as cost.</p>`}
+            ${form.annual_only && html`<p class="hint">Annual costs only: the VAT below is kept for reference and is not used on the VAT return. The full amount counts as cost.${form.vat_country !== HOME_COUNTRY ? ' In the overview this receipt is listed under “Annual costs only”, not under Foreign.' : ''}</p>`}
             ${form.vat_country !== HOME_COUNTRY && html`<p class="hint">Foreign VAT can’t be deducted on your Dutch VAT return. It’s listed separately in the overview, per country.</p>`}
             <div class="vat-line labels"><span>Rate</span><span>Net</span><span>VAT</span><span></span></div>
             ${form.vat_lines.map((l, i) => html`
