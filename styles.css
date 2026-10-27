@@ -407,3 +407,10 @@ label.check.annual-pick strong { color: var(--ink); }
 .feedback-item.done .fb-text { color: var(--muted); text-decoration: line-through; }
 .fb-actions { display: flex; gap: 10px; flex: none; }
 textarea { resize: vertical; line-height: 1.4; }
+/* About card */
+.about p { margin: 0 0 8px; }
+.about details { border-top: 1px solid var(--line); padding: 10px 0 2px; }
+.about summary { cursor: pointer; font-weight: 600; padding-bottom: 6px; }
+.about ul { margin: 4px 0 8px; padding-left: 18px; font-size: 14px; color: var(--muted); }
+.about li { margin-bottom: 6px; }
+.about li strong { color: var(--ink); }

@@ -59,3 +59,7 @@ GitHub Pages from `main` of `andregrift-design/receipts`. To ship a change: comm
 ## Costs
 
 Supabase free tier (500 MB database, 1 GB photos: roughly 4,000 receipts). Claude: about 1–2 cents per receipt. Free-tier projects pause after a week without use; opening the dashboard wakes them.
+
+---
+
+© 2026 EAGER Management B.V. All rights reserved.

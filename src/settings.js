@@ -61,7 +61,8 @@ export function SettingsPage({ ctx, version }) {
         <p class="hint"><strong>iPhone / iPad:</strong> Safari → Share → Add to Home Screen. <strong>Mac:</strong> Safari → File → Add to Dock.
           Everything syncs through your account. The address is <a href=${appUrl}>${appUrl}</a>.</p>
       </section>
-      <p class="hint center">VH5 ${version}</p>
+      <${About} version=${version} />
+      <p class="hint center">VH5 ${version} · © 2026 EAGER Management B.V. All rights reserved.</p>
     </div>`;
 }
 
@@ -94,5 +95,42 @@ function Passkeys() {
       </div>
       <button class="primary" disabled=${busy} onClick=${add}>${busy ? 'Waiting for your device…' : 'Add a passkey'}</button>
       ${msg && html`<p class="msg">${msg}</p>`}
+    </section>`;
+}
+
+// About: copyright, what the app does with your data, the limits of its figures, and the software it builds on.
+const LIBS = [
+  ['Preact and htm', 'MIT and Apache-2.0', 'https://preactjs.com'],
+  ['Supabase JS client', 'MIT', 'https://github.com/supabase/supabase-js'],
+  ['jsPDF and jsPDF-AutoTable', 'MIT', 'https://github.com/parallax/jsPDF'],
+  ['SheetJS Community Edition', 'Apache-2.0', 'https://sheetjs.com'],
+  ['JSZip', 'MIT', 'https://stuk.github.io/jszip/'],
+  ['PDF.js', 'Apache-2.0', 'https://mozilla.github.io/pdf.js/'],
+];
+
+function About({ version }) {
+  return html`
+    <section class="card about">
+      <h3>About VH5</h3>
+      <p>VH5 ${version}<br />© 2026 EAGER Management B.V. All rights reserved.</p>
+      <details>
+        <summary>Privacy: where your data goes</summary>
+        <ul>
+          <li><strong>Storage and sign-in:</strong> Supabase, in Frankfurt (EU). Your receipts, statements and photos are visible only to you and to the people you share with in Settings.</li>
+          <li><strong>Reading documents:</strong> photos and PDFs are sent to Anthropic (Claude) to read the amounts, VAT and dates. Anthropic does not use this data to train its models.</li>
+          <li><strong>Exchange rates:</strong> fetched from Frankfurter (European Central Bank rates). Only a currency and a date are sent, nothing about you.</li>
+          <li><strong>The app itself</strong> is served by GitHub Pages. No ads, no tracking, no analytics cookies. This device keeps a copy of the app and of photos waiting to upload, so VH5 works offline.</li>
+          <li>Want your data exported or deleted? Download the quarters you need, then ask EAGER Management B.V. to delete your account.</li>
+        </ul>
+      </details>
+      <details>
+        <summary>Disclaimer</summary>
+        <p class="hint">VH5 helps you keep your receipts and agency statements in order. Its figures are indicative: amounts read automatically can be wrong, so check every document. VH5 is not tax advice; your accountant decides what goes on the VAT return and the income tax return. Keep the original receipts and invoices: the tax authorities can ask for them for 7 years.</p>
+      </details>
+      <details>
+        <summary>Open-source software</summary>
+        <ul>${LIBS.map(([name, lic, url]) => html`<li><a href=${url} target="_blank" rel="noopener">${name}</a> · ${lic}</li>`)}</ul>
+        <p class="hint">Exchange rates: European Central Bank, via Frankfurter. Text recognition: Claude by Anthropic.</p>
+      </details>
     </section>`;
 }

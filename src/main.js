@@ -12,7 +12,7 @@ import { Spotlight } from './search.js';
 import { Celebration, countAdded } from './confetti.js';
 import { FeedbackDialog } from './feedback.js';
 
-const VERSION = '2.7';
+const VERSION = '2.7.1';
 
 // ---------- sign in ----------
 
