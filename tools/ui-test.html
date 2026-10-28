@@ -2,5 +2,6 @@
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Receipts UI test (mock data)</title>
 <link rel="stylesheet" href="../styles.css">
+<script>/* ?today=YYYY-MM-DD fakes the date */ const t = new URLSearchParams(location.search).get('today'); if (t) globalThis.VH5_TODAY = t;</script>
 <script type="importmap">{ "imports": { "/src/api.js": "/tools/mock-api.js" } }</script>
 </head><body><div id="app"></div><script type="module" src="../src/main.js"></script></body></html>

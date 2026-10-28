@@ -4,7 +4,7 @@
 <script type="module">
 // Logic and export tests with made-up data. Open /tools/test.html on a local server.
 import { problems, summarize, splitGross, quarterRange, quarterLabel, vatLabel, usdConversion, eurConversion, lineTotal, statementProblems,
-  summarizeIncome, mergeCategories, agencyOverview, parseNum, fmtNum, money, periodOf, nextPeriod, bookingPeriod, isLate, forPeriod, duplicateOf, yearFigures, ANNUAL_LABEL, vatOff, followVat, expectedVat, filingDue } from '../src/vat.js';
+  summarizeIncome, mergeCategories, agencyOverview, parseNum, fmtNum, money, periodOf, nextPeriod, bookingPeriod, isLate, forPeriod, duplicateOf, yearFigures, ANNUAL_LABEL, vatOff, followVat, expectedVat, filingDue, filingDeadline, daysLeftLabel } from '../src/vat.js';
 import { listStatements, eurUsdRates } from '/src/api.js';
 import { downloadExcel, downloadPdf, numbered } from '../src/export.js';
 import { buildPeriod } from '../src/overview.js';
@@ -126,6 +126,9 @@ eq('vat matches rate', [vatOff(37.5, 20, 7.5), vatOff(100, 21, 21.03), vatOff(10
 eq('vat off', [vatOff(37.5, 21, 7.5), vatOff(100, 9, 21)], [7.88, 9]);
 eq('vat follows net when it was computed', [followVat(100, 21, 200, 21), followVat(null, null, 50, 9), followVat(100, 20.5, 200, 21)], [42, 4.5, undefined]);
 eq('filing reminder only in the last two weeks of the month after the quarter', ['2026-10-17','2026-10-18','2026-10-31','2026-11-20','2026-09-28','2027-01-25','2026-02-27','2026-04-30'].map(filingDue), [null, '2026-Q3', '2026-Q3', null, null, '2026-Q4', null, '2026-Q1']);
+eq('filing deadline urgent on the last two days', ['2026-10-29','2026-10-30','2026-10-31','2027-01-30','2026-04-29','2026-04-30'].map((d) => { const x = filingDeadline(d); return x && [x.period, x.due, x.daysLeft, x.urgent]; }),
+  [['2026-Q3','2026-10-31',2,false], ['2026-Q3','2026-10-31',1,true], ['2026-Q3','2026-10-31',0,true], ['2026-Q4','2027-01-31',1,true], ['2026-Q1','2026-04-30',1,true], ['2026-Q1','2026-04-30',0,true]]);
+eq('days left label', [0, 1, 5].map(daysLeftLabel), ['Due today', 'Due tomorrow', '5 days left']);
 eq('expected vat', [expectedVat(82.64, 21), expectedVat('x', 21)], [17.35, null]);
 eq('receipt with wrong vat needs checking', problems({ receipt_date: '2026-08-01', store: 'X', total: 45, currency: 'EUR', vat_lines: [{ rate: 21, net: 37.5, vat: 7.5 }] }), ['VAT doesn’t match the rate']);
 eq('statement with wrong vat needs checking', statementProblems({ ...sts[0], lines: sts[0].lines.map((l) => ({ ...l, vat: l.vat + 10 })) }).includes('VAT doesn’t match the VAT %'), true);

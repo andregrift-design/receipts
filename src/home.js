@@ -1,10 +1,11 @@
 // Home: where new receipts and statements are going, the year so far compared with last year, and what needs attention.
 import { html, useState, useMemo } from './ui.js';
-import { money, fmtNum, periodLabel, bookingPeriod, periodOf, filingDue, yearFigures, duplicateOf, quarterLabel } from './vat.js';
-import { go } from './kit.js';
+import { money, fmtNum, periodLabel, bookingPeriod, periodOf, todayISO, daysLeftLabel, yearFigures, duplicateOf, quarterLabel } from './vat.js';
+import { go, Modal } from './kit.js';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const today = () => new Date().toISOString().slice(0, 10);
+const today = todayISO;
+const longDate = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
 
 // € 1.2k / € 12k / € 1.2M for axis labels and the hero numbers' comparison.
 const compact = (v) => {
@@ -94,9 +95,7 @@ export function HomePage({ ctx }) {
 
   const current = bookingPeriod(d, ctx.filed);
   const [cy, cq] = [Number(current.slice(0, 4)), Number(current.slice(6))];
-  const prev = filingDue(d);
-  const prevOpen = prev && !ctx.filed.has(prev) && [...ctx.receipts, ...ctx.statements].some((x) => x.period === prev);
-  const dueBy = new Date(Date.UTC(year, Number(d.slice(5, 7)), 0)).toLocaleDateString('en-US', { day: 'numeric', month: 'long', timeZone: 'UTC' });
+  const dl = ctx.deadline; // set only while a quarter's VAT return is due and not yet filed
   const inCurrent = { r: ctx.receipts.filter((x) => x.period === current).length, s: ctx.statements.filter((x) => x.period === current).length };
 
   const todo = [
@@ -109,7 +108,7 @@ export function HomePage({ ctx }) {
   const t = now.totals, b = before.totals;
   return html`
     <div class="page-head">
-      <div><p class="kicker">VH5 · ${new Date().toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p><h1>Home</h1></div>
+      <div><p class="kicker">VH5 · ${new Date(`${d}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p><h1>Home</h1></div>
     </div>
 
     <section class="card now-card">
@@ -126,15 +125,15 @@ export function HomePage({ ctx }) {
       </div>`}
     </section>
 
-    ${prevOpen && html`
-      <a class="open-quarter" href=${`#/overview/${prev.slice(0, 4)}-${prev.slice(6)}`}>
-        <span class="oq-icon" aria-hidden="true">◷</span>
-        <span class="oq-text"><strong>${periodLabel(prev)} is still open</strong>
-          <small>The VAT return is due by ${dueBy}. Check it and file it with the CPA when it’s ready.</small></span>
-        <span class="oq-go">Review ${periodLabel(prev)} ›</span>
+    ${dl && html`
+      <a class=${`open-quarter${dl.daysLeft === 0 ? ' today' : dl.urgent ? ' soon' : ''}`} href=${`#/overview/${dl.period.slice(0, 4)}-${dl.period.slice(6)}`}>
+        <span class="oq-icon" aria-hidden="true">${dl.urgent ? '!' : '◷'}</span>
+        <span class="oq-text"><strong>${periodLabel(dl.period)} is still open · ${daysLeftLabel(dl.daysLeft)}</strong>
+          <small>The VAT return is due by ${longDate(dl.due)}. Check it and file it with the CPA when it’s ready.</small></span>
+        <span class="oq-go">Review ${periodLabel(dl.period)} ›</span>
       </a>`}
 
-    <div class="section-title"><h2>${year} so far</h2><small>1 Jan – ${new Date().toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}, compared with the same period in ${year - 1} · EUR</small></div>
+    <div class="section-title"><h2>${year} so far</h2><small>1 Jan – ${new Date(`${d}T12:00:00`).toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}, compared with the same period in ${year - 1} · EUR</small></div>
     <div class="tiles four">
       <div class="tile"><p class="kicker">Income (fees)</p><div class="big-num">${money(t.income)}</div><${Delta} now=${t.income} before=${b.income} /></div>
       <div class="tile"><p class="kicker">Expenses (incl. VAT)</p><div class="big-num">${money(t.expenses)}</div><${Delta} now=${t.expenses} before=${b.expenses} goodWhenUp=${false} /></div>
@@ -152,4 +151,19 @@ export function HomePage({ ctx }) {
     ${todo.length ? html`<div class="card flush">${todo.map(([n, label, href]) => html`
       <a class="row" href=${`#/${href}`}><span class="what"><strong>${n} ${label}</strong></span><span class="badge st-review">Open</span></a>`)}</div>`
       : html`<div class="card"><p class="hint">Nothing waiting. Everything is checked.</p></div>`}`;
+}
+
+// Shown once a day per device, on opening the app in the last two days before a VAT return is due.
+export function DueDialog({ dl, onClose }) {
+  const q = periodLabel(dl.period);
+  return html`
+    <${Modal} onClose=${onClose} className="due-dialog">
+      <p class="kicker">${daysLeftLabel(dl.daysLeft)}</p>
+      <h2>${q} VAT return ${dl.daysLeft === 0 ? 'is due today' : 'is due tomorrow'}</h2>
+      <p>${q} is not marked as filed yet. Check it and send it to the CPA ${dl.daysLeft === 0 ? 'today' : `before the end of ${longDate(dl.due)}`}, then mark it as filed in the overview.</p>
+      <div class="actions">
+        <button class="primary" onClick=${() => { onClose(); go(`overview/${dl.period.slice(0, 4)}-${dl.period.slice(6)}`); }}>Review ${q}</button>
+        <button onClick=${onClose}>${dl.daysLeft === 0 ? 'Later' : 'Remind me tomorrow'}</button>
+      </div>
+    </${Modal}>`;
 }

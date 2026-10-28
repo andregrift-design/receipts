@@ -424,6 +424,27 @@ export function filingDue(iso) {
   if (day <= last - 14) return null;
   return m === 1 ? `${y - 1}-Q4` : `${y}-Q${(m - 1) / 3}`;
 }
+// Today on this device, as YYYY-MM-DD in local time (VH5_TODAY overrides it in tests).
+export const todayISO = () => {
+  if (globalThis.VH5_TODAY) return globalThis.VH5_TODAY;
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+// The VAT return due soon: quarter, due date (last day of the month after it) and days left; null outside the window.
+// urgent = the last two days (e.g. 30 and 31 October for Q3).
+export function filingDeadline(iso) {
+  const period = filingDue(iso);
+  if (!period) return null;
+  const y = Number(iso.slice(0, 4)), m = Number(iso.slice(5, 7));
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const daysLeft = last - Number(iso.slice(8, 10));
+  return { period, due: `${iso.slice(0, 8)}${String(last).padStart(2, '0')}`, daysLeft, urgent: daysLeft <= 1 };
+}
+
+// "Due today" / "Due tomorrow" / "5 days left".
+export const daysLeftLabel = (n) => (n === 0 ? 'Due today' : n === 1 ? 'Due tomorrow' : `${n} days left`);
+
 export const periodLabel = (p) => (p ? `${p.slice(5)} ${p.slice(0, 4)}` : 'No quarter');
 export const nextPeriod = (p) => (p.endsWith('4') ? `${Number(p.slice(0, 4)) + 1}-Q1` : `${p.slice(0, 6)}${Number(p.slice(6)) + 1}`);
 // The quarter a record belongs to by its own date: receipt date for expenses, import date for statements.

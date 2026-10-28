@@ -5,14 +5,15 @@ import * as api from './api.js';
 import { go, useRoute, Icon } from './kit.js';
 import { ExpensesPage, ReceiptEditor } from './expenses.js';
 import { IncomePage, StatementEditor, BookingDialog } from './income.js';
-import { HomePage } from './home.js';
+import { HomePage, DueDialog } from './home.js';
+import { todayISO, filingDeadline, periodLabel } from './vat.js';
 import { OverviewPage } from './overview.js';
 import { SettingsPage } from './settings.js';
 import { Spotlight } from './search.js';
 import { Celebration, countAdded } from './confetti.js';
 import { FeedbackDialog } from './feedback.js';
 
-const VERSION = '2.7.2';
+const VERSION = '2.8';
 
 // ---------- sign in ----------
 
@@ -209,8 +210,15 @@ function Shell({ user }) {
   const [view = 'home', arg] = route;
   const page = { '': 'home', home: 'home', r: 'expenses', expenses: 'expenses', s: 'income', income: 'income', quarter: 'overview', overview: 'overview', settings: 'settings' }[view] || 'home';
   const filed = useMemo(() => new Set(periods.map((p) => p.period)), [periods]);
+  // A VAT return due soon for a quarter with data that isn't filed yet (only for your own account).
+  const today = todayISO();
+  const dlRaw = filingDeadline(today);
+  const deadline = mine && dlRaw && !filed.has(dlRaw.period) && [...(receipts || []), ...(statements || [])].some((x) => x.period === dlRaw.period) ? dlRaw : null;
+  const seenKey = deadline ? `${deadline.period}:${today}` : '';
+  const [dueSeen, setDueSeen] = useState(localStorage.getItem('dueSeen') || '');
+  const closeDue = () => { localStorage.setItem('dueSeen', seenKey); setDueSeen(seenKey); };
   const ctx = {
-    user, ownerId, mine, ownerLabel, receipts: receipts || [], statements: statements || [], periods, filed, viewers, sharedWithMe,
+    user, ownerId, mine, ownerLabel, deadline, receipts: receipts || [], statements: statements || [], periods, filed, viewers, sharedWithMe,
     queue, reload, reloadShares, addFiles, addManual, removeQueued,
     importStatements: (files) => files.length && setPendingStatements(files),
   };
@@ -266,9 +274,12 @@ function Shell({ user }) {
         </div>
       </header>
       ${!online && html`<div class="banner">Offline. New photos are saved on this device and upload when you’re back online.</div>`}
+      ${deadline?.urgent && page !== 'home' && html`<a class=${`banner due${deadline.daysLeft === 0 ? ' today' : ''}`} href=${`#/overview/${deadline.period.slice(0, 4)}-${deadline.period.slice(6)}`}>
+        <strong>${periodLabel(deadline.period)} VAT return ${deadline.daysLeft === 0 ? 'is due today' : 'is due tomorrow'}</strong> · not filed yet · Review ›</a>`}
       ${!mine && html`<div class="banner info">You’re viewing ${ownerLabel} (read-only).</div>`}
       <main class="main">${body}</main>
       ${dragging && html`<div class="dropzone">${page === 'income' ? 'Drop agency statements to import them' : 'Drop receipts to add them'}</div>`}
+      ${deadline?.urgent && dueSeen !== seenKey && html`<${DueDialog} dl=${deadline} onClose=${closeDue} />`}
       ${feedback && html`<${FeedbackDialog} ownerId=${ownerId} version=${VERSION} onClose=${() => setFeedback(false)}
         page=${view === 'r' ? `Receipt: ${(receipts || []).find((x) => x.id === arg)?.store || 'receipt'}`
           : view === 's' ? `Statement: ${(statements || []).find((x) => x.id === arg)?.agency || 'statement'}`
