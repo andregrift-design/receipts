@@ -111,7 +111,7 @@ const STATEMENT_SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['job_date', 'client', 'description', 'invoice_no', 'kind', 'fee', 'vat_rate', 'vat', 'expenses', 'deductions', 'total'],
+        required: ['job_date', 'client', 'description', 'invoice_no', 'kind', 'fee', 'vat_rate', 'vat', 'expenses', 'expenses_vat', 'deductions', 'total'],
         properties: {
           job_date: { ...str, description: 'Date of the job, YYYY-MM-DD.' },
           client: { ...str, description: 'The client the job was for.' },
@@ -120,8 +120,9 @@ const STATEMENT_SCHEMA = {
           kind: { type: 'string', enum: ['day_rate', 'usage', 'buyout', 'day_rate_usage', 'overtime', 'travel', 'other'] },
           fee: { ...num, description: 'The model fee for this job before deductions, excluding VAT.' },
           vat_rate: { type: 'number', description: 'VAT percentage charged on the fee (0 when none).' },
-          vat: { type: 'number', description: 'VAT amount on the fee (0 when none).' },
-          expenses: { type: 'number', description: 'Expenses reimbursed to the model on top of the fee (0 when none).' },
+          vat: { type: 'number', description: 'VAT amount on the fee only, not on expenses (0 when none).' },
+          expenses: { type: 'number', description: 'Expenses reimbursed to the model on top of the fee, excluding VAT (0 when none).' },
+          expenses_vat: { type: 'number', description: 'VAT charged on the reimbursed expenses (0 when none). Keep it apart from the VAT on the fee.' },
           deductions: {
             type: 'array',
             items: {
@@ -137,7 +138,7 @@ const STATEMENT_SCHEMA = {
               },
             },
           },
-          total: { ...num, description: 'Amount paid for this line: fee + VAT + expenses - deductions.' },
+          total: { ...num, description: 'Amount paid for this line: fee + VAT + expenses + VAT on expenses - deductions.' },
         },
       },
     },
@@ -151,7 +152,8 @@ Extract exactly what is printed. Never invent amounts; use null when unreadable 
 Fees: day rate / work day / model rate = day_rate; usage, licence = usage; buy-out, buyout, extension of buy-out (verlenging) = buyout.
 Deductions are positive amounts. A negative line such as "AGENCY FEE EUR -500" is a deduction of 500 on the job it belongs to, not a separate job.
 If the PDF also contains the agency's own invoice for its fee, that is the same fee as the deduction: do not count it twice. When that invoice or the statement says reverse charge / VAT free / tax liability transferred, set reverse_charge true on the deduction.
-Dutch terms: BTW = VAT, Netto = net, Inhouding = deduction, Uitbetaling = payment. Dates in Europe are day-month-year.
+Expenses paid back (onkosten, expenses, reiskosten) go in expenses, excluding VAT. When the agency charges VAT on them, put that VAT in expenses_vat and keep vat for the VAT on the fee only. If the statement shows only one VAT amount over fee and expenses together, split it: VAT on the fee = fee x VAT %, the rest is VAT on expenses.
+Dutch terms: BTW = VAT, Netto = net, Inhouding = deduction, Uitbetaling = payment, Onkostenvergoeding = expenses paid back. Dates in Europe are day-month-year.
 Agency country from its address, postcode, phone prefix or VAT number (NL..B01, ATU..., DE..., GB..., FR...).
 Amounts are numbers with a dot as decimal separator.`;
 
@@ -209,10 +211,10 @@ async function readStatement(supabase: any, userId: string, id: string) {
   const num = (v: unknown) => (typeof v === 'number' ? round2(v) : null);
   const lines = (x.lines || []).map((l: any) => ({
     job_date: isDate(l.job_date) ? l.job_date : null, client: l.client, description: l.description, invoice_no: l.invoice_no,
-    kind: l.kind, fee: num(l.fee), vat_rate: l.vat_rate ?? 0, vat: num(l.vat) ?? 0, expenses: num(l.expenses) ?? 0,
+    kind: l.kind, fee: num(l.fee), vat_rate: l.vat_rate ?? 0, vat: num(l.vat) ?? 0, expenses: num(l.expenses) ?? 0, expenses_vat: num(l.expenses_vat) ?? 0,
     deductions: (l.deductions || []).map((d: any) => ({ type: d.type, label: d.label, amount: num(Math.abs(d.amount)), vat: num(d.vat) ?? 0, reverse_charge: !!d.reverse_charge })),
   }));
-  const lineTotal = (l: any) => (l.fee ?? 0) + l.vat + l.expenses - l.deductions.reduce((s: number, d: any) => s + (d.amount ?? 0) + (d.vat ?? 0), 0);
+  const lineTotal = (l: any) => (l.fee ?? 0) + l.vat + l.expenses + l.expenses_vat - l.deductions.reduce((s: number, d: any) => s + (d.amount ?? 0) + (d.vat ?? 0), 0);
   const sum = round2(lines.reduce((s: number, l: any) => s + lineTotal(l), 0));
   const adds = x.total_paid != null && lines.length > 0 && Math.abs(sum - x.total_paid) <= 0.02 * lines.length;
   if (x.total_paid != null && lines.length && !adds) issues.push(`Lines add up to ${sum.toFixed(2)}, amount paid is ${Number(x.total_paid).toFixed(2)}.`);
@@ -220,6 +222,10 @@ async function readStatement(supabase: any, userId: string, id: string) {
     if (l.fee == null) continue;
     const e = round2((l.fee * (l.vat_rate || 0)) / 100);
     if (Math.abs(l.vat - e) > 0.05 + Math.abs(e) * 0.002) issues.push(`VAT ${l.vat.toFixed(2)} doesn't match ${l.vat_rate}% of ${l.fee.toFixed(2)} (expected ${e.toFixed(2)}).`);
+    if (l.expenses_vat) {
+      const ex = round2((l.expenses * (l.vat_rate || 0)) / 100);
+      if (Math.abs(l.expenses_vat - ex) > 0.05 + Math.abs(ex) * 0.002) issues.push(`VAT on expenses ${l.expenses_vat.toFixed(2)} doesn't match ${l.vat_rate}% of ${l.expenses.toFixed(2)} (expected ${ex.toFixed(2)}).`);
+    }
   }
 
   const date = isDate(x.statement_date) ? x.statement_date : null;

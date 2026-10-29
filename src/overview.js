@@ -269,8 +269,19 @@ function IncomeSection({ d, m }) {
             <table><${Cols} count=${false} amounts=${1} /><tbody>${inc.deductions.map((x) => html`<tr><td>${x.label}</td><td class="n">${m(x.amount)}</td></tr>`)}
               ${!inc.deductions.length && html`<tr><td class="hint">None</td><td></td></tr>`}</tbody>
               <tfoot><tr><td>Total deductions</td><td class="n">${m(inc.deductions.reduce((t, x) => t + x.amount, 0))}</td></tr></tfoot></table>
-            ${inc.expenses !== 0 && html`<p class="hint">Expenses paid back by agencies: ${m(inc.expenses)}</p>`}
           </div>
+        </div>
+        <div class="card">
+          <h3>Fees and expenses paid back (Dutch agencies)</h3>
+          <table><${Cols} count=${false} amounts=${2} />
+            <thead><tr><th></th><th class="n">Amount</th><th class="n">VAT</th></tr></thead>
+            <tbody>
+              <tr><td>Fees</td><td class="n">${m(inc.homeFee)}</td><td class="n">${m(inc.homeFeeVat)}</td></tr>
+              <tr><td>Expenses paid back with VAT</td><td class="n">${m(inc.homeExpenses)}</td><td class="n">${m(inc.homeExpensesVat)}</td></tr>
+            </tbody>
+            <tfoot><tr><td>Turnover with Dutch VAT</td><td class="n">${m(round2(inc.homeFee + inc.homeExpenses))}</td><td class="n">${m(inc.homeVat)}</td></tr></tfoot>
+          </table>
+          <p class="hint">When an agency charges VAT on expenses it pays back, those expenses count as turnover and their VAT is due, like the VAT on fees.${round2(inc.expenses - inc.homeExpenses) !== 0 ? ` Expenses paid back without VAT: ${m(round2(inc.expenses - inc.homeExpenses))}.` : ''}</p>
         </div>`}
     </${Section}>`;
 }
@@ -282,7 +293,8 @@ function VatSection({ d, m }) {
       <div class="card">
         <table><${Cols} count=${false} amounts=${1} />
           <tbody>
-            <tr><td>VAT on income from Dutch agencies (to pay)</td><td class="n">${m(inc.homeVat)}</td></tr>
+            <tr><td>VAT on fees from Dutch agencies (to pay)</td><td class="n">${m(inc.homeFeeVat)}</td></tr>
+            <tr><td>VAT on expenses paid back by Dutch agencies (to pay)</td><td class="n">${m(inc.homeExpensesVat)}</td></tr>
             <tr><td>Reverse-charge VAT on foreign agency fees (due)</td><td class="n">${m(inc.reverseCharge)}</td></tr>
             <tr><td>VAT on Dutch receipts (deductible)</td><td class="n">${m(neg(s.homeVat))}</td></tr>
             <tr><td>VAT on Dutch agency deductions (deductible)</td><td class="n">${m(neg(inc.deductionVat))}</td></tr>

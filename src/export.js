@@ -75,13 +75,19 @@ function summaryBlocks(d, cur) {
     note: inc.reverseCharge ? `Agency fees reverse-charged: Dutch VAT ${money(inc.reverseCharge, cur)} due and deductible.` : '' });
   blocks.push({ title: 'Fees by type', head: ['Type', '', 'Amount'], rows: inc.kinds.map((k) => [k.label, null, k.amount]), foot: [['Total fees', null, inc.fee]] });
   blocks.push({ title: 'Deductions by type', head: ['Deduction', '', 'Amount'], rows: inc.deductions.map((x) => [x.label, null, x.amount]),
-    foot: [['Total deductions', null, round2(inc.deductions.reduce((t, x) => t + x.amount, 0))]],
-    note: inc.expenses ? `Expenses paid back by agencies: ${money(inc.expenses, cur)}` : '' });
+    foot: [['Total deductions', null, round2(inc.deductions.reduce((t, x) => t + x.amount, 0))]] });
+  const noVatExp = round2(inc.expenses - inc.homeExpenses);
+  blocks.push({ title: 'Fees and expenses paid back (Dutch agencies)', head: ['', '', 'Amount', 'VAT'], rows: [
+    ['Fees', null, inc.homeFee, inc.homeFeeVat],
+    ['Expenses paid back with VAT', null, inc.homeExpenses, inc.homeExpensesVat],
+  ], foot: [['Turnover with Dutch VAT', null, round2(inc.homeFee + inc.homeExpenses), inc.homeVat]],
+    note: `Expenses paid back with VAT count as turnover; their VAT is due like the VAT on fees.${noVatExp ? ` Expenses paid back without VAT: ${money(noVatExp, cur)}.` : ''}` });
 
   if (cur === 'EUR') {
     blocks.push({ section: '3. Dutch VAT position' });
     blocks.push({ title: '', head: ['', '', 'Amount'], rows: [
-      ['VAT on income from Dutch agencies (to pay)', null, inc.homeVat],
+      ['VAT on fees from Dutch agencies (to pay)', null, inc.homeFeeVat],
+      ['VAT on expenses paid back by Dutch agencies (to pay)', null, inc.homeExpensesVat],
       ['Reverse-charge VAT on foreign agency fees (due)', null, inc.reverseCharge],
       ['VAT on Dutch receipts (deductible)', null, neg(s.homeVat)],
       ['VAT on Dutch agency deductions (deductible)', null, neg(inc.deductionVat)],
@@ -205,17 +211,17 @@ const dedSum = (l, type) => (l.deductions || []).filter((x) => x.type === type).
 function incomeSheet(XLSX, d, conv, cur) {
   const dt = (iso) => (iso ? new Date(`${iso}T12:00:00`) : null);
   const header = ['Import date', 'Quarter', 'Payment date', 'Statement no.', 'Agency', 'Agency country', 'Client', 'Job', 'Job date', 'Type', 'Invoice no.',
-    `Fee ${cur}`, 'VAT %', `VAT ${cur}`, `Expenses ${cur}`, `Agency fee ${cur}`, `Website ${cur}`, `Transport ${cur}`, `Tax withheld ${cur}`,
+    `Fee ${cur}`, 'VAT %', `VAT ${cur}`, `Expenses ${cur}`, `VAT on expenses ${cur}`, `Agency fee ${cur}`, `Website ${cur}`, `Transport ${cur}`, `Tax withheld ${cur}`,
     `Other deductions ${cur}`, `VAT on deductions ${cur}`, 'Reverse charge', `Paid ${cur}`, 'Statement currency', 'Paid in statement currency',
     `Rate to ${cur}`, 'Rate date', 'Status', 'Correction / late', 'Receipts attached'];
   const rows = [...d.inc.lines]
     .sort((a, b) => (a.statement.booking_date || '').localeCompare(b.statement.booking_date || ''))
-    .map(({ statement: st, line: l, fee, vat, expenses, paid }) => {
+    .map(({ statement: st, line: l, fee, vat, expenses, expenses_vat, paid }) => {
       const f = conv.factor(statementAsReceipt(st));
       const c = (v) => round2((Number(v) || 0) * f);
       const rate = st.currency === cur ? null : conv.rate(statementAsReceipt(st));
       return [dt(st.booking_date), periodLabel(st.period), dt(st.statement_date), st.statement_no, tag(st) + (st.agency || ''), countryName(st.agency_country),
-        l.client, l.description, dt(l.job_date), JOB_KINDS[l.kind] || l.kind, l.invoice_no, fee, (Number(l.vat_rate) || 0) / 100, vat, expenses,
+        l.client, l.description, dt(l.job_date), JOB_KINDS[l.kind] || l.kind, l.invoice_no, fee, (Number(l.vat_rate) || 0) / 100, vat, expenses, expenses_vat,
         c(dedSum(l, 'agency_fee')), c(dedSum(l, 'website')), c(dedSum(l, 'transport')), c(dedSum(l, 'tax_withheld')), c(dedSum(l, 'other')),
         c((l.deductions || []).reduce((t, x) => t + (Number(x.vat) || 0), 0)), (l.deductions || []).some((x) => x.reverse_charge) ? 'Yes' : '',
         paid, st.currency, st.currency === cur ? null : lineTotal(l), rate ? rate.rate : null, dt(rate?.date), status(st),
@@ -223,8 +229,8 @@ function incomeSheet(XLSX, d, conv, cur) {
         (l.receipt_ids || []).length || ''];
     });
   const ws = XLSX.utils.aoa_to_sheet([header, ...rows], { cellDates: true });
-  fmtCols(XLSX, ws, rows.length, { date: [0, 2, 8, 26], pct: [12], money: [11, 13, 14, 15, 16, 17, 18, 19, 20, 22, 24], rate: [25] });
-  ws['!cols'] = [12, 9, 12, 18, 24, 14, 22, 30, 12, 14, 18, 11, 7, 10, 10, 11, 10, 10, 11, 11, 11, 9, 11, 9, 12, 11, 11, 14, 22, 9].map((wch) => ({ wch }));
+  fmtCols(XLSX, ws, rows.length, { date: [0, 2, 8, 27], pct: [12], money: [11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 23, 25], rate: [26] });
+  ws['!cols'] = [12, 9, 12, 18, 24, 14, 22, 30, 12, 14, 18, 11, 7, 10, 10, 11, 11, 10, 10, 11, 11, 11, 9, 11, 9, 12, 11, 11, 14, 22, 9].map((wch) => ({ wch }));
   ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length, c: header.length - 1 } }) };
   return ws;
 }
@@ -320,10 +326,12 @@ export async function downloadPdf(d, meta, onProgress) {
     doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.text('Details: jobs (agency statements)', 14, y + 4); doc.setFont('helvetica', 'normal'); y += 8;
     autoTable(doc, { ...base, ...rightCols([5, 6, 7, 8]), startY: y, styles: { ...base.styles, fontSize: 7.5 },
       head: [['Imported', 'Agency', 'Client / job', 'Job date', 'Type', 'Fee', 'VAT', 'Deductions', 'Paid']],
-      body: [...d.inc.lines].sort((a, b) => (a.statement.booking_date || '').localeCompare(b.statement.booking_date || '')).map(({ statement: st, line: l, fee, vat, deductions, paid }) => {
+      body: [...d.inc.lines].sort((a, b) => (a.statement.booking_date || '').localeCompare(b.statement.booking_date || '')).map(({ statement: st, line: l, fee, vat, expenses, expenses_vat, deductions, paid }) => {
         const rate = st.currency === cur ? null : conv.rate(statementAsReceipt(st));
         const fx = rate ? `\n${pm(lineTotal(l), st.currency)} at ${rate.rate.toFixed(4)}${rate.date ? ` (${rate.date})` : ''}` : '';
-        return [st.booking_date || '', `${tag(st)}${st.agency || ''}\n${countryName(st.agency_country)}`, [l.client, l.description].filter(Boolean).join(' - ') + fx,
+        // Expenses paid back (and the VAT on them) are not in the Fee and VAT columns; they are part of Paid.
+        const exp = expenses ? `\nExpenses paid back ${pm(expenses)}${expenses_vat ? ` + VAT ${pm(expenses_vat)}` : ''}` : '';
+        return [st.booking_date || '', `${tag(st)}${st.agency || ''}\n${countryName(st.agency_country)}`, [l.client, l.description].filter(Boolean).join(' - ') + exp + fx,
           l.job_date || '', JOB_KINDS[l.kind] || '', m(fee), m(vat), m(neg(deductions)), m(paid)];
       }),
       columnStyles: { 0: { cellWidth: 17 }, 1: { cellWidth: 26 }, 3: { cellWidth: 17 }, 4: { cellWidth: 14 }, 5: { cellWidth: 20 }, 6: { cellWidth: 17 }, 7: { cellWidth: 19 }, 8: { cellWidth: 20 } } });

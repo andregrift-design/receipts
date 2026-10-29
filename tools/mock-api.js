@@ -37,7 +37,8 @@ let periodsData = [{ user_id: 'me', period: '2026-Q1', filed_at: '2026-04-20T10:
 export const listPeriods = async () => periodsData;
 export const filePeriod = async (period) => { periodsData = [...periodsData, { user_id: 'me', period, filed_at: new Date().toISOString() }]; };
 export const createCorrection = async (table, rec) => ({ ...rec, id: rec.id + '-c', corrects: rec.id, status: 'review' });
-export const saveStatement = async (x) => ({ ...x, updated_at: String(Date.now()) });
+// Saved statements replace the mock copy, so the overview shows the change.
+export const saveStatement = async (x) => { const saved = { ...x, updated_at: String(Date.now()) }; const i = statementsData.findIndex((s) => s.id === x.id); if (i >= 0) statementsData[i] = saved; return saved; };
 export const deleteStatement = async () => {};
 export const saveReceipt = async (r) => { const s = { ...r, status: problems(r).length ? 'review' : 'done', updated_at: String(Date.now()) }; rows = rows.map((x) => (x.id === r.id ? s : x)); return s; };
 export const deleteReceipt = async () => {};

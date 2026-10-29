@@ -3,7 +3,7 @@ import { html, useState, useEffect, useRef, useMemo } from './ui.js';
 import * as api from './api.js';
 import {
   CURRENCIES, COUNTRIES, HOME_COUNTRY, JOB_KINDS, money, fmtDate, isNum, round2, countryName, parseNum, fxFor,
-  lineTotal, statementAsReceipt, statementProblems, agencyOverview, periodLabel, bookingPeriod, periodOf, duplicateOf, vatOff, followVat, fmtNum,
+  lineTotal, statementAsReceipt, statementProblems, agencyOverview, periodLabel, bookingPeriod, periodOf, duplicateOf, vatOff, followVat, fmtNum, expensesVatOff, expectedVat,
 } from './vat.js';
 import { go, Badge, PeriodBadges, Preview, NumInput, toField, Modal, Cols } from './kit.js';
 import { QueuedRow } from './expenses.js';
@@ -130,7 +130,7 @@ function ClientsCard({ agencies, single }) {
 // Deductions always shown as fixed fields, one per type.
 const DED = ['agency_fee', 'website', 'transport', 'tax_withheld', 'other'];
 const emptyDed = () => Object.fromEntries(DED.map((t) => [t, { amount: '', vat: '', label: '', reverse_charge: false }]));
-const emptyLine = () => ({ job_date: '', client: '', description: '', invoice_no: '', kind: 'day_rate', fee: '', vat_rate: '0', vat: '', expenses: '', ded: emptyDed(), receipt_ids: [] });
+const emptyLine = () => ({ job_date: '', client: '', description: '', invoice_no: '', kind: 'day_rate', fee: '', vat_rate: '0', vat: '', expenses: '', expenses_vat: '', ded: emptyDed(), receipt_ids: [] });
 
 function stToForm(st) {
   return {
@@ -148,7 +148,7 @@ function stToForm(st) {
         e.reverse_charge = e.reverse_charge || !!d.reverse_charge;
       }
       return { ...l, job_date: l.job_date || '', fee: toField(l.fee), vat_rate: String(l.vat_rate ?? 0), vat: toField(l.vat ?? 0),
-        expenses: toField(l.expenses ?? 0), ded, receipt_ids: l.receipt_ids || [] };
+        expenses: toField(l.expenses ?? 0), expenses_vat: toField(l.expenses_vat ?? 0), ded, receipt_ids: l.receipt_ids || [] };
     }),
   };
 }
@@ -159,7 +159,7 @@ function stFromForm(f) {
     total_paid: parseNum(f.total_paid),
     fx_rate: f.currency === 'EUR' ? 1 : parseNum(f.fx_rate),
     lines: f.lines.map(({ ded, ...l }) => ({
-      ...l, fee: parseNum(l.fee), vat_rate: parseNum(l.vat_rate) ?? 0, vat: parseNum(l.vat) ?? 0, expenses: parseNum(l.expenses) ?? 0,
+      ...l, fee: parseNum(l.fee), vat_rate: parseNum(l.vat_rate) ?? 0, vat: parseNum(l.vat) ?? 0, expenses: parseNum(l.expenses) ?? 0, expenses_vat: parseNum(l.expenses_vat) ?? 0,
       deductions: DED.filter((t) => parseNum(ded[t].amount) || parseNum(ded[t].vat)).map((t) => ({
         type: t, label: ded[t].label || null, amount: parseNum(ded[t].amount) || 0, vat: parseNum(ded[t].vat) || 0,
         reverse_charge: t === 'agency_fee' ? !!ded[t].reverse_charge : false })),
@@ -313,11 +313,10 @@ export function StatementEditor({ statement, ctx }) {
               <label>Job<input value=${l.description || ''} onInput=${(e) => setLine(i, { description: e.target.value })} /></label>
 
               <p class="subhead">Fee</p>
-              <div class="grid g4">
+              <div class="grid g3">
                 <label>Fee<${NumInput} label="Fee" value=${l.fee} onInput=${(v) => { const o = value.lines[i]; const vat = followVat(o.fee, o.vat, parseNum(v), o.vat_rate); setLine(i, { fee: v, ...(vat !== undefined ? { vat: toField(vat) } : {}) }); }} /></label>
                 <label>VAT %<${NumInput} label="VAT %" decimals=${0} value=${l.vat_rate} onInput=${(v) => setLine(i, { vat_rate: v })} onBlur=${() => vatFill(i)} /></label>
                 <label>VAT<${NumInput} label="VAT" value=${l.vat} onInput=${(v) => setLine(i, { vat: v })} /></label>
-                <label>Expenses paid back<${NumInput} label="Expenses" value=${l.expenses} onInput=${(v) => setLine(i, { expenses: v })} /></label>
               </div>
               ${(() => {
                 const v = value.lines[i];
@@ -325,6 +324,23 @@ export function StatementEditor({ statement, ctx }) {
                 return e === null ? '' : html`<div class="vat-warn">${fmtNum(v.vat_rate ?? 0, 0)}% of ${money(v.fee, form.currency)} is <strong>${money(e, form.currency)}</strong>, not ${money(v.vat, form.currency)}.
                   ${!readOnly && html`<button type="button" class="link" onClick=${() => setLine(i, { vat: toField(e) })}>Use ${money(e, form.currency)}</button>`}
                   <small>If the statement really shows this VAT, check the VAT %.</small></div>`;
+              })()}
+
+              <p class="subhead">Expenses paid back</p>
+              <div class="grid g2">
+                <label>Expenses paid back<${NumInput} label="Expenses" value=${l.expenses} onInput=${(v) => setLine(i, { expenses: v })} /></label>
+                <label>VAT on expenses<${NumInput} label="VAT on expenses" value=${l.expenses_vat} onInput=${(v) => setLine(i, { expenses_vat: v })} /></label>
+              </div>
+              ${(() => {
+                const v = value.lines[i];
+                if (!v) return '';
+                const e = expensesVatOff(v);
+                const rate = Number(v.vat_rate) || 0;
+                const add = !readOnly && !v.expenses_vat && v.expenses && rate ? expectedVat(v.expenses, rate) : null;
+                if (e !== null) return html`<div class="vat-warn">${fmtNum(rate, 0)}% of ${money(v.expenses, form.currency)} is <strong>${money(e, form.currency)}</strong>, not ${money(v.expenses_vat, form.currency)}.
+                  ${!readOnly && html`<button type="button" class="link" onClick=${() => setLine(i, { expenses_vat: toField(e) })}>Use ${money(e, form.currency)}</button>`}</div>`;
+                return add ? html`<p class="hint">Does the statement charge VAT on these expenses?
+                  <button type="button" class="link" onClick=${() => setLine(i, { expenses_vat: toField(add) })}>Add ${fmtNum(rate, 0)}% VAT (${money(add, form.currency)})</button></p>` : '';
               })()}
 
               <p class="subhead">Deductions</p>

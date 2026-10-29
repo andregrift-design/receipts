@@ -292,8 +292,8 @@ const DEDUCTION_CATEGORY = { agency_fee: 'Agency & Management', website: 'Market
 
 const n = (v) => (isNum(v) ? Number(v) : 0);
 export const deductionTotal = (d) => n(d.amount) + n(d.vat);
-// What a line pays out: fee + VAT + expenses - deductions (and VAT on them).
-export const lineTotal = (l) => round2(n(l.fee) + n(l.vat) + n(l.expenses) - (l.deductions || []).reduce((s, d) => s + deductionTotal(d), 0));
+// What a line pays out: fee + VAT + expenses + VAT on expenses - deductions (and VAT on them).
+export const lineTotal = (l) => round2(n(l.fee) + n(l.vat) + n(l.expenses) + n(l.expenses_vat) - (l.deductions || []).reduce((s, d) => s + deductionTotal(d), 0));
 
 // Converting a statement uses the same rate rules as a receipt, at the statement (payment) date.
 export const statementAsReceipt = (st) => ({ currency: st.currency, fx_rate: st.fx_rate, fx_date: st.fx_date, receipt_date: st.statement_date });
@@ -310,10 +310,14 @@ export function statementProblems(st) {
   if (lines.some((l) => !isNum(l.fee))) out.push('fee on every line');
   if (lines.some((l) => (l.deductions || []).some((d) => !isNum(d.amount)))) out.push('deduction amounts');
   if (lines.some((l) => vatOff(l.fee, l.vat_rate ?? 0, l.vat ?? 0) !== null)) out.push('VAT doesn’t match the VAT %');
+  if (lines.some((l) => expensesVatOff(l) !== null)) out.push('VAT on expenses doesn’t match the VAT %');
   const sum = round2(lines.reduce((s, l) => s + lineTotal(l), 0));
   if (lines.length && isNum(st.total_paid) && Math.abs(sum - Number(st.total_paid)) > 0.02 * lines.length) out.push('lines don’t add up to the amount paid');
   return out;
 }
+
+// VAT on expenses paid back is charged at the line's VAT %, when there is any. Expected amount when it's off, else null.
+export const expensesVatOff = (l) => (n(l.expenses_vat) ? vatOff(l.expenses, l.vat_rate ?? 0, l.expenses_vat) : null);
 
 // Income for a period, converted with factor (EUR by default). Statements count in the period of their statement date.
 export function summarizeIncome(statements, factor = fxFor) {
@@ -322,7 +326,7 @@ export function summarizeIncome(statements, factor = fxFor) {
   const deductions = new Map();
   const categories = new Map();
   const lines = [];
-  let fee = 0, vat = 0, expenses = 0, paid = 0, homeVat = 0, deductionVat = 0, reverseCharge = 0;
+  let fee = 0, vat = 0, expenses = 0, expensesVat = 0, paid = 0, homeVat = 0, homeFeeVat = 0, homeExpensesVat = 0, homeFee = 0, homeExpenses = 0, deductionVat = 0, reverseCharge = 0;
   for (const st of statements) {
     const f = factor(statementAsReceipt(st));
     if (f == null) continue;
@@ -334,11 +338,17 @@ export function summarizeIncome(statements, factor = fxFor) {
     if (!st._reversal) a.statements.add(st.id);
     for (const l of st.lines || []) {
       const ded = (l.deductions || []).reduce((s, d) => s + deductionTotal(d), 0);
-      const row = { statement: st, line: l, fee: round2(c(l.fee)), vat: round2(c(l.vat)), expenses: round2(c(l.expenses)), deductions: round2(c(ded)), paid: round2(c(lineTotal(l))) };
+      const row = { statement: st, line: l, fee: round2(c(l.fee)), vat: round2(c(l.vat)), expenses: round2(c(l.expenses)), expenses_vat: round2(c(l.expenses_vat)),
+        deductions: round2(c(ded)), paid: round2(c(lineTotal(l))) };
       lines.push(row);
-      a.fee += row.fee; a.vat += row.vat; a.expenses += row.expenses; a.deductions += row.deductions; a.paid += row.paid;
-      fee += row.fee; vat += row.vat; expenses += row.expenses; paid += row.paid;
-      if (home) homeVat += row.vat;
+      // Agency totals: VAT = all VAT the agency charged, on the fee and on expenses paid back.
+      a.fee += row.fee; a.vat += row.vat + row.expenses_vat; a.expenses += row.expenses; a.deductions += row.deductions; a.paid += row.paid;
+      fee += row.fee; vat += row.vat; expenses += row.expenses; expensesVat += row.expenses_vat; paid += row.paid;
+      if (home) {
+        homeVat += row.vat + row.expenses_vat;
+        homeFeeVat += row.vat; homeExpensesVat += row.expenses_vat; homeFee += row.fee;
+        if (row.expenses_vat) homeExpenses += row.expenses; // expenses charged with VAT are turnover too
+      }
       const k = l.kind || 'other';
       kinds.set(k, (kinds.get(k) || 0) + row.fee);
       for (const d of l.deductions || []) {
@@ -360,8 +370,10 @@ export function summarizeIncome(statements, factor = fxFor) {
     kinds: r(kinds).map((k) => ({ ...k, label: JOB_KINDS[k.key] || k.key })),
     deductions: r(deductions).map((d) => ({ ...d, label: DEDUCTION_TYPES[d.key] || d.key })),
     categories: r(categories).map((x) => ({ category: x.key, amount: x.amount })),
-    fee: round2(fee), vat: round2(vat), expenses: round2(expenses), paid: round2(paid),
-    homeVat: round2(homeVat), // Dutch VAT on income: to pay
+    fee: round2(fee), vat: round2(vat), expenses: round2(expenses), expensesVat: round2(expensesVat), paid: round2(paid),
+    homeVat: round2(homeVat), // Dutch VAT on income (fees and expenses paid back): to pay
+    homeFee: round2(homeFee), homeFeeVat: round2(homeFeeVat), // fees from Dutch agencies and their VAT
+    homeExpenses: round2(homeExpenses), homeExpensesVat: round2(homeExpensesVat), // expenses paid back with VAT, and that VAT
     deductionVat: round2(deductionVat), // Dutch VAT on deductions by Dutch agencies: deductible
     reverseCharge: round2(reverseCharge), // due and deductible
     missingRate: statements.filter((st) => factor(statementAsReceipt(st)) == null),
@@ -464,7 +476,7 @@ function negateReceipt(r) {
 }
 function negateStatement(st) {
   return { ...st, id: `${st.id}~rev`, _reversal: true, total_paid: -n(st.total_paid),
-    lines: (st.lines || []).map((l) => ({ ...l, fee: -n(l.fee), vat: -n(l.vat), expenses: -n(l.expenses),
+    lines: (st.lines || []).map((l) => ({ ...l, fee: -n(l.fee), vat: -n(l.vat), expenses: -n(l.expenses), expenses_vat: -n(l.expenses_vat),
       deductions: (l.deductions || []).map((d) => ({ ...d, amount: -n(d.amount), vat: -n(d.vat) })) })) };
 }
 
@@ -523,7 +535,7 @@ export function yearFigures(receipts, statements, year, until = null) {
       m.income[month(st.booking_date)] += n(l.fee) * f;
       t.income += n(l.fee) * f;
       t.paid += lineTotal(l) * f;
-      if (home) t.vatOut += n(l.vat) * f;
+      if (home) t.vatOut += (n(l.vat) + n(l.expenses_vat)) * f;
       for (const d of l.deductions || []) {
         if (d.type !== 'tax_withheld') t.deductions += n(d.amount) * f;
         if (home) t.vatIn += n(d.vat) * f;
