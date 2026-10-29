@@ -337,8 +337,9 @@ export function StatementEditor({ statement, ctx }) {
                 const e = expensesVatOff(v);
                 const rate = Number(v.vat_rate) || 0;
                 const add = !readOnly && !v.expenses_vat && v.expenses && rate ? expectedVat(v.expenses, rate) : null;
-                if (e !== null) return html`<div class="vat-warn">${fmtNum(rate, 0)}% of ${money(v.expenses, form.currency)} is <strong>${money(e, form.currency)}</strong>, not ${money(v.expenses_vat, form.currency)}.
-                  ${!readOnly && html`<button type="button" class="link" onClick=${() => setLine(i, { expenses_vat: toField(e) })}>Use ${money(e, form.currency)}</button>`}</div>`;
+                if (e !== null) return html`<div class="vat-warn">VAT on expenses can be at most ${fmtNum(rate, 0)}% of ${money(v.expenses, form.currency)}: <strong>${money(e, form.currency)}</strong>, not ${money(v.expenses_vat, form.currency)}.
+                  ${!readOnly && html`<button type="button" class="link" onClick=${() => setLine(i, { expenses_vat: toField(e) })}>Use ${money(e, form.currency)}</button>`}
+                  <small>VAT can apply to part of the expenses only, e.g. travel yes, parking no.</small></div>`;
                 return add ? html`<p class="hint">Does the statement charge VAT on these expenses?
                   <button type="button" class="link" onClick=${() => setLine(i, { expenses_vat: toField(add) })}>Add ${fmtNum(rate, 0)}% VAT (${money(add, form.currency)})</button></p>` : '';
               })()}

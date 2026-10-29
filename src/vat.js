@@ -316,8 +316,19 @@ export function statementProblems(st) {
   return out;
 }
 
-// VAT on expenses paid back is charged at the line's VAT %, when there is any. Expected amount when it's off, else null.
-export const expensesVatOff = (l) => (n(l.expenses_vat) ? vatOff(l.expenses, l.vat_rate ?? 0, l.expenses_vat) : null);
+// VAT on expenses paid back is charged at the line's VAT %, often on part of them only (travel yes, parking no).
+// Off only when it is more than that % of all the expenses: returns the maximum, else null.
+export function expensesVatOff(l) {
+  const max = expectedVat(l.expenses, l.vat_rate ?? 0);
+  if (!n(l.expenses_vat) || max === null) return null;
+  return n(l.expenses_vat) > max + 0.05 + Math.abs(max) * 0.002 ? max : null;
+}
+// The part of the expenses that carries VAT (turnover on the return): VAT / rate, at most all the expenses.
+export const expensesTaxed = (l) => {
+  if (!n(l.expenses_vat)) return 0;
+  const r = n(l.vat_rate);
+  return r ? Math.sign(n(l.expenses)) * Math.min(Math.abs(n(l.expenses)), round2(Math.abs(n(l.expenses_vat)) * 100 / r)) : n(l.expenses);
+};
 
 // Income for a period, converted with factor (EUR by default). Statements count in the period of their statement date.
 export function summarizeIncome(statements, factor = fxFor) {
@@ -338,7 +349,7 @@ export function summarizeIncome(statements, factor = fxFor) {
     if (!st._reversal) a.statements.add(st.id);
     for (const l of st.lines || []) {
       const ded = (l.deductions || []).reduce((s, d) => s + deductionTotal(d), 0);
-      const row = { statement: st, line: l, fee: round2(c(l.fee)), vat: round2(c(l.vat)), expenses: round2(c(l.expenses)), expenses_vat: round2(c(l.expenses_vat)),
+      const row = { statement: st, line: l, fee: round2(c(l.fee)), vat: round2(c(l.vat)), expenses: round2(c(l.expenses)), expenses_vat: round2(c(l.expenses_vat)), expenses_taxed: round2(c(expensesTaxed(l))),
         deductions: round2(c(ded)), paid: round2(c(lineTotal(l))) };
       lines.push(row);
       // Agency totals: VAT = all VAT the agency charged, on the fee and on expenses paid back.
@@ -347,7 +358,7 @@ export function summarizeIncome(statements, factor = fxFor) {
       if (home) {
         homeVat += row.vat + row.expenses_vat;
         homeFeeVat += row.vat; homeExpensesVat += row.expenses_vat; homeFee += row.fee;
-        if (row.expenses_vat) homeExpenses += row.expenses; // expenses charged with VAT are turnover too
+        homeExpenses += row.expenses_taxed; // expenses charged with VAT are turnover too
       }
       const k = l.kind || 'other';
       kinds.set(k, (kinds.get(k) || 0) + row.fee);

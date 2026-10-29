@@ -152,7 +152,7 @@ Extract exactly what is printed. Never invent amounts; use null when unreadable 
 Fees: day rate / work day / model rate = day_rate; usage, licence = usage; buy-out, buyout, extension of buy-out (verlenging) = buyout.
 Deductions are positive amounts. A negative line such as "AGENCY FEE EUR -500" is a deduction of 500 on the job it belongs to, not a separate job.
 If the PDF also contains the agency's own invoice for its fee, that is the same fee as the deduction: do not count it twice. When that invoice or the statement says reverse charge / VAT free / tax liability transferred, set reverse_charge true on the deduction.
-Expenses paid back (onkosten, expenses, reiskosten) go in expenses, excluding VAT. When the agency charges VAT on them, put that VAT in expenses_vat and keep vat for the VAT on the fee only. If the statement shows only one VAT amount over fee and expenses together, split it: VAT on the fee = fee x VAT %, the rest is VAT on expenses.
+Expenses paid back (onkosten, expenses, reiskosten) go in expenses, excluding VAT. When the agency charges VAT on them, put that VAT in expenses_vat and keep vat for the VAT on the fee only. If the statement shows only one VAT amount over fee and expenses together, split it: VAT on the fee = fee x VAT %, the rest is VAT on expenses. VAT is often charged on part of the expenses only (e.g. travel yes, parking no); that is fine.
 Dutch terms: BTW = VAT, Netto = net, Inhouding = deduction, Uitbetaling = payment, Onkostenvergoeding = expenses paid back. Dates in Europe are day-month-year.
 Agency country from its address, postcode, phone prefix or VAT number (NL..B01, ATU..., DE..., GB..., FR...).
 Amounts are numbers with a dot as decimal separator.`;
@@ -223,8 +223,9 @@ async function readStatement(supabase: any, userId: string, id: string) {
     const e = round2((l.fee * (l.vat_rate || 0)) / 100);
     if (Math.abs(l.vat - e) > 0.05 + Math.abs(e) * 0.002) issues.push(`VAT ${l.vat.toFixed(2)} doesn't match ${l.vat_rate}% of ${l.fee.toFixed(2)} (expected ${e.toFixed(2)}).`);
     if (l.expenses_vat) {
+      // VAT may be charged on part of the expenses only (e.g. travel yes, parking no); it can't be more than the rate on all of them.
       const ex = round2((l.expenses * (l.vat_rate || 0)) / 100);
-      if (Math.abs(l.expenses_vat - ex) > 0.05 + Math.abs(ex) * 0.002) issues.push(`VAT on expenses ${l.expenses_vat.toFixed(2)} doesn't match ${l.vat_rate}% of ${l.expenses.toFixed(2)} (expected ${ex.toFixed(2)}).`);
+      if (l.expenses_vat > ex + 0.05 + Math.abs(ex) * 0.002) issues.push(`VAT on expenses ${l.expenses_vat.toFixed(2)} is more than ${l.vat_rate}% of ${l.expenses.toFixed(2)} (at most ${ex.toFixed(2)}).`);
     }
   }
 

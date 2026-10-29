@@ -137,7 +137,10 @@ eq('days left label', [0, 1, 5].map(daysLeftLabel), ['Due today', 'Due tomorrow'
   eq('line total includes VAT on expenses', lineTotal(st.lines[0]), 1331);
   eq('VAT on expenses counted apart', [i2.homeFee, i2.homeFeeVat, i2.homeExpenses, i2.homeExpensesVat, i2.homeVat], [1000, 210, 200, 42, 252]);
   eq('agency VAT includes VAT on expenses', i2.agencies[0].vat, 252);
-  eq('expenses VAT check', [expensesVatOff({ expenses: 200, vat_rate: 21, expenses_vat: 42 }), expensesVatOff({ expenses: 200, vat_rate: 21, expenses_vat: 30 }), expensesVatOff({ expenses: 200, vat_rate: 21, expenses_vat: 0 })], [null, 42, null]);
+  eq('expenses VAT check', [expensesVatOff({ expenses: 200, vat_rate: 21, expenses_vat: 42 }), expensesVatOff({ expenses: 200, vat_rate: 21, expenses_vat: 30 }),
+    expensesVatOff({ expenses: 200, vat_rate: 21, expenses_vat: 50 }), expensesVatOff({ expenses: 200, vat_rate: 21, expenses_vat: 0 })], [null, null, 42, null]);
+  // Made-up: parking 50 without VAT + travel 30 with 21% VAT (6.30) paid back.
+  eq('VAT on part of the expenses', (() => { const x = summarizeIncome([{ ...st, lines: [{ ...st.lines[0], deductions: [], expenses: 80, expenses_vat: 6.3 }] }]); return [x.homeExpenses, x.homeExpensesVat, x.expenses]; })(), [30, 6.3, 80]);
   eq('expenses without VAT are not turnover', summarizeIncome([{ ...st, lines: [{ ...st.lines[0], expenses_vat: 0 }] }]).homeExpenses, 0);
 }
 eq('expected vat', [expectedVat(82.64, 21), expectedVat('x', 21)], [17.35, null]);
